@@ -106,9 +106,9 @@ var AppNav = (function () {
       backBtn.classList.add('hidden');
       if (legend) legend.classList.toggle('hidden', state.view !== 'home');
       if (state.view === 'home') document.title = 'Oasi5';
-      else if (state.view === 'articles') document.title = 'Articles · Oasi5';
-      else if (state.view === 'access') document.title = 'Facilities · Oasi5';
-      else if (state.view === 'transit') document.title = 'Directions · Oasi5';
+      else if (state.view === 'articles') document.title = '소식 · Oasi5';
+      else if (state.view === 'access') document.title = '시설 추천 · Oasi5';
+      else if (state.view === 'transit') document.title = '길찾기 · Oasi5';
       return;
     }
 

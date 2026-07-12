@@ -26,25 +26,23 @@ function stripAptNoise(q) {
 
 function queryVariants(q) {
   const base = stripAptNoise(q);
-  const variants = [base, base + ', South Korea', base + ' 대한민국'];
+  const variants = [base, base + ' 대한민국', base + ', Korea'];
 
-  // "수원 힐스테이트" <-> "힐스테이트 수원"
   const parts = base.split(/\s+/).filter(Boolean);
   if (parts.length >= 2) {
     variants.push(parts.slice().reverse().join(' '));
     variants.push(parts.slice().reverse().join(' ') + ' 대한민국');
   }
 
-  // Ensure 아파트 suffix variants
   if (/아파트|APT|apt/i.test(base) === false && /[가-힣]{2,}/.test(base)) {
     const maybeApt = parts[parts.length - 1];
     if (maybeApt && maybeApt.length >= 2) {
       variants.push(base + ' 아파트');
-      variants.push(parts.slice(0, -1).concat([maybeApt + '아파트']).join(' '));
     }
   }
 
-  return unique(variants).slice(0, 4);
+  // Landmark-style short names: try with city suffixes less; prefer plain name first.
+  return unique(variants).slice(0, 5);
 }
 
 function toPoint(row, q, source) {

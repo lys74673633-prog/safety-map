@@ -285,7 +285,7 @@ async function transitExternalFallback(sx, sy, ex, ey, fromName, toName) {
       walkMinutes: 0,
       busCount: 0,
       subwayCount: 0,
-      label: '대중교통 (외부 지도)',
+      label: '대중교통 안내',
       firstStop: fromName,
       lastStop: toName,
     },
@@ -297,8 +297,8 @@ async function transitExternalFallback(sx, sy, ex, ey, fromName, toName) {
         from: fromName,
         to: toName,
         line: null,
-        instruction: '카카오맵 대중교통 길찾기로 버스·지하철 경로를 확인하세요.',
-        notes: ['아래 「카카오맵에서 길찾기」를 누르면 출발·도착 좌표가 맞게 열립니다.'],
+        instruction: '버스·지하철 환승 경로를 확인해 주세요.',
+        notes: ['상세 노선은 경로 안내에서 확인할 수 있습니다.'],
       },
     ],
     polyline: [[sy, sx], [ey, ex]],
@@ -309,7 +309,7 @@ async function transitExternalFallback(sx, sy, ex, ey, fromName, toName) {
     const wr = walk.routes[0];
     routes.push(Object.assign({}, wr, {
       id: 1,
-      summary: Object.assign({}, wr.summary, { label: '도보 대안' }),
+      summary: Object.assign({}, wr.summary, { label: '도보로 이동' }),
     }));
   }
 
@@ -318,7 +318,7 @@ async function transitExternalFallback(sx, sy, ex, ey, fromName, toName) {
     source: 'external-fallback',
     routes: routes,
     links: links,
-    message: '대중교통 상세 경로는 외부 지도에서 확인하세요.',
+    message: '대중교통 상세 경로를 확인하세요.',
   };
 }
 

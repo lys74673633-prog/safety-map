@@ -288,42 +288,28 @@ var TransitGuide = (function () {
     );
   }
 
-  function formatDistanceLabel(stop) {
-    if (!stop) return '';
-    if (stop.distanceM != null) return stop.distanceM + 'm';
-    if (stop.distanceKm != null) return Math.round(stop.distanceKm * 1000) + 'm';
-    return '';
-  }
-
-  function renderKakaoPanel(fromPoint, toPoint) {
-    if (!fromPoint || !toPoint || typeof NaverTransit === 'undefined') return '';
-    var kakaoWeb = NaverTransit.buildKakaoRouteUrl(fromPoint, toPoint, state.mode);
-    var kakaoScheme = NaverTransit.buildKakaoSchemeUrl(fromPoint, toPoint, state.mode);
-    var modeLabel = (NaverTransit.getMode(state.mode).label || '길찾기');
-    return (
-      '<div class="transit-kakao-panel">' +
-        '<div class="transit-kakao-copy">' +
-          '<strong>카카오맵 ' + escapeHtml(modeLabel) + '</strong>' +
-          '<p>출발·도착 좌표를 카카오맵 길찾기로 바로 엽니다. 대중교통 환승·버스 노선은 카카오맵이 가장 정확합니다.</p>' +
-        '</div>' +
-        '<div class="transit-kakao-actions">' +
-          '<a class="facility-recommend-btn transit-kakao-primary" href="' + escapeHtml(kakaoWeb) + '" target="_blank" rel="noopener noreferrer">카카오맵에서 길찾기</a>' +
-          '<a class="facility-recommend-btn secondary" href="' + escapeHtml(kakaoScheme) + '" target="_blank" rel="noopener noreferrer">모바일 카카오맵</a>' +
-        '</div>' +
-      '</div>'
-    );
-  }
-
   function renderRouteResult(profile, fromPoint, toPoint) {
     if (!fromPoint || !toPoint) return '';
 
     var routes = state.routes || [];
     var selected = routes[state.selectedRouteIndex] || routes[0];
-    if (!selected && state.mode !== 'transit') return '';
+    if (!selected) {
+      return (
+        '<section class="hub-section transit-result" id="transit-result">' +
+          '<div class="transit-result-head">' +
+            '<h2>경로를 찾는 중…</h2>' +
+            '<p class="hub-section-note">' +
+              escapeHtml(fromPoint.name) + ' → ' + escapeHtml(toPoint.name) +
+            '</p>' +
+          '</div>' +
+          '<p class="hub-section-note access-loading-note">맞춤 경로를 불러오는 중입니다.</p>' +
+        '</section>'
+      );
+    }
 
-    var steps = selected && typeof TransitRoutes !== 'undefined'
+    var steps = typeof TransitRoutes !== 'undefined'
       ? TransitRoutes.annotateSteps(selected.steps || [], state.profileId)
-      : ((selected && selected.steps) || []);
+      : (selected.steps || []);
 
     var modeLabel = typeof NaverTransit !== 'undefined'
       ? (NaverTransit.getMode(state.mode).label || state.mode)
@@ -333,55 +319,38 @@ var TransitGuide = (function () {
       ? NaverTransit.getProfileTips(profile.id).slice(0, 2)
       : [];
 
-    var kakaoWeb = typeof NaverTransit !== 'undefined'
-      ? NaverTransit.buildKakaoRouteUrl(fromPoint, toPoint, state.mode)
-      : '#';
-
     return (
       '<section class="hub-section transit-result" id="transit-result">' +
         '<div class="transit-result-head">' +
           '<h2>' + escapeHtml(modeLabel) + ' · ' + escapeHtml(profile.label) + ' 맞춤 경로</h2>' +
           '<p class="hub-section-note">' +
             escapeHtml(fromPoint.name) + ' → ' + escapeHtml(toPoint.name) +
+            (routes.length > 1 ? ' · 추천 ' + routes.length + '개 경로' : '') +
           '</p>' +
         '</div>' +
-        renderKakaoPanel(fromPoint, toPoint) +
-        (routes.length ? renderRouteCards(routes, state.selectedRouteIndex) : '') +
+        renderRouteCards(routes, state.selectedRouteIndex) +
         '<div class="transit-result-layout">' +
           '<div class="transit-map-wrap">' +
             '<div id="transit-map" class="transit-map" aria-label="경로 지도"></div>' +
           '</div>' +
           '<div class="transit-detail-panel">' +
-            (selected ? (
-              '<div class="transit-detail-summary">' +
-                '<span class="transit-detail-time">' + escapeHtml(TransitRoutes.formatDuration(selected.summary.totalMinutes)) + '</span>' +
-                '<span class="transit-detail-meta">' +
-                  escapeHtml([
-                    selected.summary.transfers ? '환승 ' + selected.summary.transfers + '회' : '환승 없음',
-                    selected.summary.walkMeters ? '도보 ' + TransitRoutes.formatDistance(selected.summary.walkMeters) : '',
-                    TransitRoutes.formatPayment(selected.summary.payment)
-                  ].filter(Boolean).join(' · ')) +
-                '</span>' +
-                '<span class="transit-detail-comfort">교통약자 편의 점수 ' + (selected.comfortScore || 0) + '/100</span>' +
-              '</div>' +
-              renderStepList(steps)
-            ) : (
-              '<p class="hub-section-note">상세 환승 안내는 카카오맵에서 확인하세요.</p>'
-            )) +
+            '<div class="transit-detail-summary">' +
+              '<span class="transit-detail-time">' + escapeHtml(TransitRoutes.formatDuration(selected.summary.totalMinutes)) + '</span>' +
+              '<span class="transit-detail-meta">' +
+                escapeHtml([
+                  selected.summary.transfers ? '환승 ' + selected.summary.transfers + '회' : '환승 없음',
+                  selected.summary.walkMeters ? '도보 ' + TransitRoutes.formatDistance(selected.summary.walkMeters) : '',
+                  TransitRoutes.formatPayment(selected.summary.payment)
+                ].filter(Boolean).join(' · ')) +
+              '</span>' +
+              '<span class="transit-detail-comfort">교통약자 편의 점수 ' + (selected.comfortScore || 0) + '/100</span>' +
+            '</div>' +
+            renderStepList(steps) +
             (tips.length ? (
               '<ul class="transit-tip-list">' +
                 tips.map(function (t) { return '<li>' + escapeHtml(t) + '</li>'; }).join('') +
               '</ul>'
             ) : '') +
-            '<p class="transit-ext-link">' +
-              '<a class="facility-recommend-btn transit-kakao-primary" href="' + escapeHtml(kakaoWeb) + '" target="_blank" rel="noopener noreferrer">카카오맵 길찾기</a> ' +
-              (selected && selected.externalLinks
-                ? (
-                  '<a class="facility-recommend-btn secondary" href="' + escapeHtml(selected.externalLinks.naver) + '" target="_blank" rel="noopener noreferrer">네이버</a> ' +
-                  '<a class="facility-recommend-btn secondary" href="' + escapeHtml(selected.externalLinks.google) + '" target="_blank" rel="noopener noreferrer">구글</a>'
-                )
-                : '') +
-            '</p>' +
           '</div>' +
         '</div>' +
         (typeof KricMobility !== 'undefined' && state.mobilityStations.length
@@ -399,16 +368,16 @@ var TransitGuide = (function () {
         '<div class="hub-hero transit-hero-compact">' +
           '<h1 class="hub-page-title">' +
             '<span class="hub-page-brand">Oasi<span class="brand-five">5</span></span>' +
-            '<span class="hub-page-en">Directions</span>' +
+            '<span class="hub-page-en">길찾기</span>' +
           '</h1>' +
-          '<p class="hub-hero-lead">출발·도착을 입력하면 <strong>카카오맵 길찾기</strong>로 연결하고, 이동 상황에 맞는 안내를 함께 보여줍니다.</p>' +
+          '<p class="hub-hero-lead">출발·도착을 입력하면 이동 상황에 맞는 경로와 단계별 안내를 보여줍니다.</p>' +
         '</div>' +
         renderRoutePanel(profile) +
         (showResult && state.fromPoint && state.toPoint
           ? renderRouteResult(profile, state.fromPoint, state.toPoint)
           : (
             '<section class="hub-section transit-empty">' +
-              '<p class="hub-section-note">출발지와 도착지를 입력한 뒤 「편한 길 찾기」를 누르면 카카오맵 길찾기와 맞춤 안내가 표시됩니다.</p>' +
+              '<p class="hub-section-note">출발지와 도착지를 입력한 뒤 「편한 길 찾기」를 누르면 맞춤 경로가 표시됩니다.</p>' +
             '</section>'
           )) +
       '</main>'
@@ -448,6 +417,27 @@ var TransitGuide = (function () {
         box.innerHTML = items.length ? renderSuggestions(items, field) : '';
       }
     });
+  }
+
+  function localizePlaceLabel(text) {
+    if (text == null || text === '') return text;
+    return String(text)
+      .replace(/\bWalk\b/g, '도보')
+      .replace(/\bWalking\b/gi, '도보')
+      .replace(/\bSubway\b/gi, '지하철')
+      .replace(/\bMetro\b/gi, '지하철')
+      .replace(/\bBus\b/g, '버스')
+      .replace(/\bTransit\b/gi, '대중교통')
+      .replace(/\bDestination\b/gi, '도착')
+      .replace(/\bOrigin\b/gi, '출발')
+      .replace(/\bStart\b/g, '출발')
+      .replace(/\bEnd\b/g, '도착')
+      .replace(/\bTransfer\b/gi, '환승')
+      .replace(/\bminutes?\b/gi, '분')
+      .replace(/\bhours?\b/gi, '시간')
+      .replace(/\bexternal\b/gi, '안내')
+      .replace(/South Korea/gi, '대한민국')
+      .replace(/Republic of Korea/gi, '대한민국');
   }
 
   function pickSuggestion(field, index) {
@@ -501,7 +491,7 @@ var TransitGuide = (function () {
       state.fromPoint = pts[0];
       state.toPoint = pts[1];
 
-      // Show Kakao Map panel immediately — don't wait on slow route APIs.
+      // 위치가 잡히면 바로 결과 영역을 열고, 경로 API는 이어서 채웁니다.
       state.loading = false;
       state.showResult = true;
       state.routes = [];
@@ -512,6 +502,28 @@ var TransitGuide = (function () {
       return TransitRoutes.fetchRoutes(pts[0], pts[1], state.mode, state.profileId)
         .then(function (data) {
           var ranked = TransitRoutes.rankRoutes(data.routes || [], state.profileId);
+          // Hide external-link-only dummy routes from the card list if real steps exist elsewhere,
+          // but keep them if they're the only option — localize labels first.
+          ranked = ranked.map(function (route) {
+            var summary = Object.assign({}, route.summary || {});
+            if (summary.label) {
+              summary.label = String(summary.label)
+                .replace(/external/gi, '안내')
+                .replace(/walk/gi, '도보')
+                .replace(/transit/gi, '대중교통')
+                .replace(/public transit/gi, '대중교통');
+            }
+            var steps = (route.steps || []).map(function (step) {
+              return Object.assign({}, step, {
+                from: localizePlaceLabel(step.from),
+                to: localizePlaceLabel(step.to),
+                line: localizePlaceLabel(step.line),
+                instruction: localizePlaceLabel(step.instruction),
+                notes: (step.notes || []).map(localizePlaceLabel)
+              });
+            });
+            return Object.assign({}, route, { summary: summary, steps: steps });
+          });
           state.routes = ranked;
           state.selectedRouteIndex = 0;
           state.routeMeta = { source: data.source, mode: data.mode };
@@ -530,7 +542,6 @@ var TransitGuide = (function () {
           mount();
         })
         .catch(function () {
-          // Kakao panel already shown — keep result visible without failing the whole flow.
           mount();
         });
     }).catch(function (err) {

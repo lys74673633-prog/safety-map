@@ -540,8 +540,8 @@ var DisabilityAccess = (function () {
 
   function formatDistance(km) {
     if (km == null || km < 0) return '';
-    if (km < 1) return Math.max(1, Math.round(km * 1000)) + 'm';
-    return km.toFixed(1) + 'km';
+    if (km < 1) return Math.max(1, Math.round(km * 1000)) + '미터';
+    return km.toFixed(1) + '킬로미터';
   }
 
   function encodePlaceData(item) {
@@ -629,52 +629,30 @@ var DisabilityAccess = (function () {
       return;
     }
 
-    var regional = looksLikeRegionalPlace(trimmed);
-    // Only show curated text hits for non-regional keyword searches (e.g. "코엑스", "성수").
-    state.textHits = regional ? [] : searchFacilitiesByText(trimmed);
+    // Always resolve the typed destination to coordinates, then recommend nearby places.
+    // Do NOT rely on curated RECOMMENDATIONS name matches — that only covers a fixed list.
+    state.textHits = [];
     state.resolvingDestination = true;
     state.nearbyRemote = { cafe: [], food: [], shop: [] };
+    state.loadingNearby = { cafe: true, food: true, shop: true };
     mount();
-    if (state.textHits.length) scheduleFacilityPhotos();
 
-    if (state.destinationPoint && state.destinationPoint.name === trimmed) {
+    if (state.destinationPoint && state.destinationPoint.name === trimmed && state.destinationPoint.lat) {
       state.resolvingDestination = false;
       refreshNearbyLists();
       return;
     }
 
-    var localPoint = null;
-    if (typeof NaverTransit !== 'undefined') {
-      var local = NaverTransit.searchLocal(trimmed, 8);
-      var trimmedNorm = normalizeSearch(trimmed);
-      localPoint = local.find(function (p) {
-        return p.lat && p.lng && normalizeSearch(p.name) === trimmedNorm;
-      }) || null;
-    }
-
-    if (!localPoint && !regional && state.textHits.length && state.textHits[0].lat) {
-      localPoint = {
-        name: trimmed,
-        address: state.textHits[0].address || '',
-        lat: state.textHits[0].lat,
-        lng: state.textHits[0].lng,
-        source: 'text-hit'
-      };
-    }
-
     function finishResolve(point) {
       state.resolvingDestination = false;
       if (point && point.lat && point.lng) {
-        state.destinationPoint = Object.assign({}, point, {
-          name: regional ? trimmed : (point.name || trimmed)
-        });
+        state.destinationPoint = Object.assign({}, point, { name: trimmed });
         refreshNearbyLists();
         return;
       }
       state.destinationPoint = null;
       resetNearbyState();
       mount();
-      scheduleFacilityPhotos();
     }
 
     function geocodeNow() {
@@ -690,23 +668,33 @@ var DisabilityAccess = (function () {
         });
     }
 
-    // Regional / apartment queries: geocode first (don't wait on unrelated curated hits).
-    if (regional || !localPoint) {
-      geocodeNow()
-        .then(finishResolve)
-        .catch(function () {
-          return geocodeClient(trimmed).then(function (point) {
-            if (point) return finishResolve(point);
-            if (typeof NaverTransit !== 'undefined') {
-              return NaverTransit.resolvePoint(trimmed).then(finishResolve);
-            }
-            finishResolve(null);
-          });
-        });
-      return;
+    function searchPlaceNow() {
+      return fetch(apiUrl('/api/transit-search?q=' + encodeURIComponent(trimmed) + '&limit=5'))
+        .then(function (res) {
+          if (!res.ok) throw new Error('search');
+          return res.json();
+        })
+        .then(function (data) {
+          var items = (data && data.items) || [];
+          var best = items.find(function (p) { return p.lat && p.lng; });
+          return best || null;
+        })
+        .catch(function () { return null; });
     }
 
-    finishResolve(localPoint);
+    // Geocode + place search in parallel — first valid coords win.
+    Promise.all([geocodeNow().catch(function () { return null; }), searchPlaceNow()])
+      .then(function (results) {
+        var point = results[0] || results[1];
+        if (point) return finishResolve(point);
+        if (typeof NaverTransit !== 'undefined') {
+          return NaverTransit.resolvePoint(trimmed).then(finishResolve);
+        }
+        finishResolve(null);
+      })
+      .catch(function () {
+        finishResolve(null);
+      });
   }
 
   function submitDestinationSearch() {
@@ -843,8 +831,8 @@ var DisabilityAccess = (function () {
   function mergeCategory(curated, remote, point, kindKey) {
     var list = [];
     var seen = {};
-    var regional = looksLikeRegionalPlace(state.destination);
 
+    // Always prefer live nearby results for the searched destination.
     (remote || []).forEach(function (remoteItem) {
       if (remoteItem.distanceKm != null && remoteItem.distanceKm > NEARBY_MAX_KM) return;
       var entry = remotePlaceToEntry(remoteItem, kindKey);
@@ -854,15 +842,13 @@ var DisabilityAccess = (function () {
       list.push(entry);
     });
 
-    // Regional searches: only OSM nearby. Curated Seoul-heavy lists feel unrelated.
-    if (!regional) {
-      filterNearby(curated, point).forEach(function (item) {
-        var key = (item.name || '') + '|' + item.lat + ',' + item.lng;
-        if (seen[key]) return;
-        seen[key] = true;
-        list.push(item);
-      });
-    }
+    // Only add curated places that are actually near this destination.
+    filterNearby(curated, point).forEach(function (item) {
+      var key = (item.name || '') + '|' + item.lat + ',' + item.lng;
+      if (seen[key]) return;
+      seen[key] = true;
+      list.push(item);
+    });
 
     list.sort(function (a, b) {
       return (a.distanceKm == null ? 999 : a.distanceKm) - (b.distanceKm == null ? 999 : b.distanceKm);
@@ -935,7 +921,7 @@ var DisabilityAccess = (function () {
         '<div class="access-dest-search-row">' +
           '<div class="access-dest-field transit-field-suggest">' +
             '<input type="text" id="access-dest" class="transit-input access-dest-input" ' +
-              'placeholder="예: 해운대 센텀 · 수원 광교" ' +
+              'placeholder="가고 싶은 장소 (예: 부산역, 해운대)" ' +
               'value="' + escapeHtml(state.destination) + '" autocomplete="off" aria-label="가게 될 곳" />' +
             '<div id="access-dest-suggest">' + renderSuggestions(state.suggestDest) + '</div>' +
           '</div>' +
@@ -1149,26 +1135,18 @@ var DisabilityAccess = (function () {
     var resolved = RECOMMENDATIONS.map(resolveEntry);
     var point = state.destinationPoint;
     var hasPoint = !!(point && point.lat && point.lng);
-    var hasTextHits = !!(state.textHits && state.textHits.length);
     var cafes = [];
     var food = [];
     var shops = [];
 
-    if (hasTextHits) {
-      cafes = state.textHits.filter(function (r) { return r.kind === '카페'; });
-      food = state.textHits.filter(function (r) { return r.kind === '식당'; });
-      shops = state.textHits.filter(function (r) { return r.kind === '가게·쇼핑'; });
-    }
-
     if (hasPoint) {
-      // For regional destinations, prefer nearby OSM results and only keep curated places that are actually near.
       cafes = mergeCategory(resolved.filter(function (r) { return r.kind === '카페'; }), state.nearbyRemote.cafe, point, 'cafe');
       food = mergeCategory(resolved.filter(function (r) { return r.kind === '식당'; }), state.nearbyRemote.food, point, 'food');
       shops = mergeCategory(resolved.filter(function (r) { return r.kind === '가게·쇼핑'; }), state.nearbyRemote.shop, point, 'shop');
     }
 
     function section(title, note, items, offset) {
-      if (!hasPoint && !hasTextHits) return '';
+      if (!hasPoint && !state.resolvingDestination) return '';
       if (!items.length) {
         if (state.resolvingDestination || isNearbyLoading()) {
           return '<section class="hub-section"><h2>' + escapeHtml(title) + '</h2><p class="hub-section-note access-loading-note">주변 관련 장소를 찾는 중…</p></section>';
@@ -1176,9 +1154,7 @@ var DisabilityAccess = (function () {
         return '<section class="hub-section"><h2>' + escapeHtml(title) + '</h2><p class="hub-section-note">「' +
           escapeHtml((point && point.name) || state.destination) + '」 근처 ' + escapeHtml(title) + ' 추천이 없습니다.</p></section>';
       }
-      var sectionNote = hasPoint
-        ? ('「' + (point.name || state.destination) + '」 주변 · ' + note)
-        : ('「' + state.destination + '」 검색 결과 · ' + note);
+      var sectionNote = '「' + (point.name || state.destination) + '」 주변 · ' + note;
       return (
         '<section class="hub-section">' +
           '<h2>' + escapeHtml(title) + '</h2>' +
@@ -1195,16 +1171,16 @@ var DisabilityAccess = (function () {
         '<div class="hub-hero">' +
           '<h1 class="hub-page-title">' +
             '<span class="hub-page-brand">Oasi<span class="brand-five">5</span></span>' +
-            '<span class="hub-page-en">Facilities</span>' +
+            '<span class="hub-page-en">시설 추천</span>' +
           '</h1>' +
         '</div>' +
         renderDestinationPanel() +
-        (!hasPoint && !hasTextHits
-          ? '<section class="hub-section access-intro"><p class="hub-section-note">목적지를 입력한 뒤 검색하면 관련 카페·식당·쇼핑 추천이 바로 표시됩니다.</p></section>'
+        (!hasPoint && !state.resolvingDestination
+          ? '<section class="hub-section access-intro"><p class="hub-section-note">가고 싶은 장소를 입력하면 그 주변 카페·식당·쇼핑을 바로 추천합니다.</p></section>'
           : '') +
         section('카페', '접근이 비교적 쉬운 카페', cafes, 0) +
         section('식당', '통로·엘리베이터가 있는 식당', food, cafes.length) +
-        section('가게·쇼핑', '백화점·쇼핑몰 위주', shops, cafes.length + food.length) +
+        section('가게·쇼핑', '마트·쇼핑몰 위주', shops, cafes.length + food.length) +
       '</main>'
     );
   }

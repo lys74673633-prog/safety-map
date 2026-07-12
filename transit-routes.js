@@ -140,7 +140,7 @@ var TransitRoutes = (function () {
   }
 
   function formatDuration(minutes) {
-    if (minutes == null || minutes === '' || isNaN(Number(minutes))) return '외부 지도';
+    if (minutes == null || minutes === '' || isNaN(Number(minutes))) return '경로 확인';
     var m = Math.max(0, Math.round(minutes || 0));
     if (m < 60) return m + '분';
     var h = Math.floor(m / 60);
@@ -150,8 +150,8 @@ var TransitRoutes = (function () {
 
   function formatDistance(meters) {
     var m = Math.max(0, Math.round(meters || 0));
-    if (m < 1000) return m + 'm';
-    return (m / 1000).toFixed(1) + 'km';
+    if (m < 1000) return m + '미터';
+    return (m / 1000).toFixed(1) + '킬로미터';
   }
 
   function formatPayment(won) {
