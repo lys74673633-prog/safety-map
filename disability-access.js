@@ -632,20 +632,55 @@ var DisabilityAccess = (function () {
     }
 
     var reqId = ++facilityRequestId;
-    var nearbyStarted = false;
     var cacheKey = trimmed.toLowerCase();
-    var cached = facilityCache[cacheKey];
-    if (cached && Date.now() - cached.t < 10 * 60 * 1000) {
-      state.textHits = [];
+
+    function saveCache(point, nearby) {
+      facilityCache[cacheKey] = { t: Date.now(), point: point, nearby: nearby };
+      if (typeof OasiFast !== 'undefined') {
+        OasiFast.lsSet('fac:' + cacheKey, facilityCache[cacheKey]);
+      }
+    }
+
+    function paintDone(point, nearby) {
+      if (reqId !== facilityRequestId) return;
+      state.destinationPoint = Object.assign({}, point, { name: trimmed });
       state.resolvingDestination = false;
-      state.destinationPoint = cached.point;
-      state.nearbyRemote = cached.nearby;
+      state.nearbyRemote = nearby || { cafe: [], food: [], shop: [] };
       state.loadingNearby = { cafe: false, food: false, shop: false };
       state.nearbyError = false;
       state.nearbyPartialError = false;
+      saveCache(state.destinationPoint, {
+        cafe: state.nearbyRemote.cafe.slice(),
+        food: state.nearbyRemote.food.slice(),
+        shop: state.nearbyRemote.shop.slice()
+      });
       mount();
       scheduleFacilityPhotos();
+    }
+
+    // 0) memory / localStorage — instant
+    var cached = facilityCache[cacheKey];
+    if (!cached && typeof OasiFast !== 'undefined') {
+      cached = OasiFast.lsGet('fac:' + cacheKey, 2 * 60 * 60 * 1000);
+      if (cached) facilityCache[cacheKey] = cached;
+    }
+    if (cached && cached.point && cached.nearby) {
+      state.textHits = [];
+      paintDone(cached.point, cached.nearby);
       return;
+    }
+
+    // 1) curated list name match — instant
+    var localHit = null;
+    for (var i = 0; i < RECOMMENDATIONS.length; i++) {
+      var r = RECOMMENDATIONS[i];
+      if (!r.lat || !r.lng) continue;
+      var rn = String(r.name || '').replace(/\s+/g, '').toLowerCase();
+      var qn = trimmed.replace(/\s+/g, '').toLowerCase();
+      if (rn.indexOf(qn) >= 0 || qn.indexOf(rn.replace(/\(.*?\)/g, '')) >= 0) {
+        localHit = { name: trimmed, address: r.address || '', lat: r.lat, lng: r.lng, source: 'curated' };
+        break;
+      }
     }
 
     state.textHits = [];
@@ -654,150 +689,67 @@ var DisabilityAccess = (function () {
     state.loadingNearby = { cafe: true, food: true, shop: true };
     state.nearbyError = false;
     state.nearbyPartialError = false;
+    if (localHit) {
+      state.destinationPoint = localHit;
+      state.resolvingDestination = false;
+    }
     mount();
 
-    // Progressive: paint as soon as coords exist, then stream each category.
-    function applyPoint(point) {
-      if (reqId !== facilityRequestId) return;
-      if (!point || !point.lat || !point.lng) return false;
+    function runClientFast(point) {
+      if (reqId !== facilityRequestId || !point || !point.lat) return Promise.resolve(null);
       state.destinationPoint = Object.assign({}, point, { name: trimmed });
       state.resolvingDestination = false;
       mount();
-      return true;
+      if (typeof OasiFast === 'undefined') return Promise.resolve(null);
+      return OasiFast.nearby(point.lat, point.lng, NEARBY_RADIUS_KM, NEARBY_LIMIT)
+        .then(function (near) {
+          if (reqId !== facilityRequestId) return null;
+          paintDone(point, near || { cafe: [], food: [], shop: [] });
+          return near;
+        });
     }
 
-    function finishKind(kind, items) {
-      if (reqId !== facilityRequestId) return;
-      state.nearbyRemote[kind] = items || [];
-      state.loadingNearby[kind] = false;
-      mount();
-      if (!isNearbyLoading()) {
-        facilityCache[cacheKey] = {
-          t: Date.now(),
-          point: state.destinationPoint,
-          nearby: {
-            cafe: state.nearbyRemote.cafe.slice(),
-            food: state.nearbyRemote.food.slice(),
-            shop: state.nearbyRemote.shop.slice()
-          }
-        };
-        scheduleFacilityPhotos();
-      }
-    }
+    var startPoint = localHit
+      ? Promise.resolve(localHit)
+      : (typeof OasiFast !== 'undefined' ? OasiFast.geocode(trimmed) : Promise.resolve(null));
 
-    function loadNearbyKinds(point) {
-      if (nearbyStarted || !point) return;
-      nearbyStarted = true;
-      ['cafe', 'food', 'shop'].forEach(function (kind) {
-        var url = apiUrl(
-          '/api/nearby-places?lat=' + encodeURIComponent(point.lat) +
-          '&lng=' + encodeURIComponent(point.lng) +
-          '&kind=' + encodeURIComponent(kind) +
+    startPoint
+      .then(function (point) {
+        if (reqId !== facilityRequestId) return;
+        if (point) return runClientFast(point);
+        // fallback: server one-shot
+        return fetch(apiUrl(
+          '/api/facility-recommend?q=' + encodeURIComponent(trimmed) +
           '&radius=' + NEARBY_RADIUS_KM +
           '&limit=' + NEARBY_LIMIT
-        );
-        var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-        var timer = setTimeout(function () {
-          if (ctrl) ctrl.abort();
-          finishKind(kind, []);
-        }, 5000);
-        fetch(url, ctrl ? { signal: ctrl.signal } : undefined)
-          .then(function (res) {
-            clearTimeout(timer);
-            if (!res.ok) throw new Error('nearby');
-            return res.json();
-          })
+        ))
+          .then(function (res) { return res.ok ? res.json() : null; })
           .then(function (data) {
-            finishKind(kind, (data && data.items) || []);
-          })
-          .catch(function () {
-            clearTimeout(timer);
-            finishKind(kind, []);
-            state.nearbyPartialError = true;
-          });
-      });
-    }
-
-    function failAll() {
-      if (reqId !== facilityRequestId) return;
-      state.resolvingDestination = false;
-      state.destinationPoint = null;
-      resetNearbyState();
-      state.nearbyError = true;
-      mount();
-    }
-
-    // Fast path: Open-Meteo in browser (no Vercel hop) raced with facility-recommend.
-    var meteoUrl = 'https://geocoding-api.open-meteo.com/v1/search?name=' +
-      encodeURIComponent(trimmed) + '&count=5&language=ko&format=json&countryCode=KR';
-    var meteoP = fetch(meteoUrl)
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        var rows = (data && data.results) || [];
-        for (var i = 0; i < rows.length; i++) {
-          var row = rows[i];
-          var lat = Number(row.latitude);
-          var lng = Number(row.longitude);
-          if (lat >= 33 && lat <= 39 && lng >= 124 && lng <= 132) {
-            return { name: trimmed, address: '', lat: lat, lng: lng, source: 'open-meteo' };
-          }
-        }
-        return null;
-      })
-      .catch(function () { return null; });
-
-    var recommendP = fetch(apiUrl(
-      '/api/facility-recommend?q=' + encodeURIComponent(trimmed) +
-      '&radius=' + NEARBY_RADIUS_KM +
-      '&limit=' + NEARBY_LIMIT
-    ))
-      .then(function (res) {
-        if (!res.ok) throw new Error('facility-recommend');
-        return res.json();
-      })
-      .catch(function () { return null; });
-
-    // If Open-Meteo wins first, start nearby immediately (perceived speed).
-    meteoP.then(function (point) {
-      if (reqId !== facilityRequestId) return;
-      if (point && applyPoint(point)) loadNearbyKinds(point);
-    });
-
-    recommendP.then(function (data) {
-      if (reqId !== facilityRequestId) return;
-      if (data && data.point && data.point.lat) {
-        applyPoint(data.point);
-        if ((data.cafe && data.cafe.length) || (data.food && data.food.length) || (data.shop && data.shop.length)) {
-          nearbyStarted = true;
-          state.nearbyRemote = {
-            cafe: data.cafe || [],
-            food: data.food || [],
-            shop: data.shop || []
-          };
-          state.loadingNearby = { cafe: false, food: false, shop: false };
-          state.nearbyError = false;
-          facilityCache[cacheKey] = {
-            t: Date.now(),
-            point: state.destinationPoint,
-            nearby: {
-              cafe: state.nearbyRemote.cafe.slice(),
-              food: state.nearbyRemote.food.slice(),
-              shop: state.nearbyRemote.shop.slice()
+            if (reqId !== facilityRequestId) return;
+            if (data && data.point && data.point.lat) {
+              paintDone(data.point, {
+                cafe: data.cafe || [],
+                food: data.food || [],
+                shop: data.shop || []
+              });
+            } else {
+              state.resolvingDestination = false;
+              state.destinationPoint = null;
+              resetNearbyState();
+              state.nearbyError = true;
+              mount();
             }
-          };
-          mount();
-          scheduleFacilityPhotos();
-          return;
-        }
-        loadNearbyKinds(data.point);
-        return;
-      }
-      meteoP.then(function (point) {
+          });
+      })
+      .catch(function () {
         if (reqId !== facilityRequestId) return;
-        if (point && applyPoint(point)) loadNearbyKinds(point);
-        else if (!state.destinationPoint) failAll();
+        state.resolvingDestination = false;
+        if (!state.destinationPoint) {
+          resetNearbyState();
+          state.nearbyError = true;
+          mount();
+        }
       });
-    });
   }
 
   function submitDestinationSearch() {
@@ -1351,6 +1303,7 @@ var DisabilityAccess = (function () {
     var searchBtn = container.querySelector('#access-dest-search');
     if (input && !input.dataset.bound) {
       input.dataset.bound = '1';
+      var prefetchTimer = null;
       input.addEventListener('input', function () {
         state.destination = input.value.trim();
         if (state.destinationPoint && state.destinationPoint.name !== state.destination) {
@@ -1358,6 +1311,12 @@ var DisabilityAccess = (function () {
           resetNearbyState();
         }
         toggleSearchButton(container);
+        if (prefetchTimer) clearTimeout(prefetchTimer);
+        prefetchTimer = setTimeout(function () {
+          if (typeof OasiFast !== 'undefined' && state.destination.length >= 2) {
+            OasiFast.prefetchGeocode(state.destination);
+          }
+        }, 180);
       });
       input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {

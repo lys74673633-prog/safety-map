@@ -345,7 +345,7 @@ var TransitGuide = (function () {
 
     state.error = '';
     state.loading = true;
-    state.showResult = false;
+    state.showResult = true;
     state.routes = [];
     mount();
 
@@ -368,13 +368,17 @@ var TransitGuide = (function () {
     ]).then(function (pts) {
       state.fromPoint = asPoint(state.from, pts[0]);
       state.toPoint = asPoint(state.to, pts[1]);
-      state.showResult = true;
+      if (!state.fromPoint.lat || !state.toPoint.lat) {
+        state.loading = false;
+        state.error = '출발·도착 위치를 찾지 못했습니다.';
+        mount();
+        return;
+      }
       loadRoutes();
     }).catch(function () {
       state.loading = false;
       state.fromPoint = asPoint(state.from, null);
       state.toPoint = asPoint(state.to, null);
-      state.showResult = true;
       state.routes = [];
       state.error = '출발·도착 위치를 찾지 못했습니다.';
       mount();
@@ -476,8 +480,14 @@ var TransitGuide = (function () {
       var input = container.querySelector('#transit-' + field);
       if (!input || input.dataset.bound) return;
       input.dataset.bound = '1';
+      var prefetchTimer = null;
       input.addEventListener('input', function () {
         clearPointIfEdited(field, input.value.trim());
+        if (prefetchTimer) clearTimeout(prefetchTimer);
+        prefetchTimer = setTimeout(function () {
+          var q = input.value.trim();
+          if (typeof OasiFast !== 'undefined' && q.length >= 2) OasiFast.prefetchGeocode(q);
+        }, 160);
       });
     });
 

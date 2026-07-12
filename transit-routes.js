@@ -55,7 +55,12 @@ var TransitRoutes = (function () {
   function fetchRoutes(from, to, mode, profileId) {
     if (!from || !to) return Promise.reject(new Error('missing points'));
     if (!from.lat || !from.lng || !to.lat || !to.lng) {
-      return Promise.reject(new Error('좌표가 없는 장소입니다. 연관 검색어에서 장소를 선택해 주세요.'));
+      return Promise.reject(new Error('좌표가 없는 장소입니다. 장소명을 다시 입력해 주세요.'));
+    }
+
+    // Walk / car / bicycle: go straight to public OSRM from the browser (instant, no Vercel).
+    if (mode === 'walk' || mode === 'car' || mode === 'bicycle') {
+      return fetchOsrmClient(from, to, mode);
     }
 
     var url = ROUTE_API
@@ -72,16 +77,10 @@ var TransitRoutes = (function () {
       .then(function (res) {
         var ct = (res.headers.get('content-type') || '');
         if (!res.ok || ct.indexOf('application/json') < 0) {
-          if (mode === 'walk' || mode === 'car' || mode === 'bicycle') {
-            return fetchOsrmClient(from, to, mode);
-          }
           throw new Error('경로를 불러오지 못했습니다.');
         }
         return res.json().then(function (data) {
           if (!res.ok) {
-            if ((mode === 'walk' || mode === 'car' || mode === 'bicycle') && (res.status === 404 || data.code === 'ODSAY_KEY_REQUIRED')) {
-              return fetchOsrmClient(from, to, mode);
-            }
             var err = new Error((data && data.message) || '경로를 불러오지 못했습니다.');
             err.code = data && data.code;
             err.data = data;
@@ -89,12 +88,6 @@ var TransitRoutes = (function () {
           }
           return data;
         });
-      })
-      .catch(function (err) {
-        if (mode === 'walk' || mode === 'car' || mode === 'bicycle') {
-          return fetchOsrmClient(from, to, mode);
-        }
-        throw err;
       });
   }
 

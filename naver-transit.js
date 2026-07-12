@@ -323,6 +323,14 @@ var NaverTransit = (function () {
     if (cached && Date.now() - cached.t < 15 * 60 * 1000) {
       return Promise.resolve(Object.assign({}, cached.point));
     }
+    if (typeof OasiFast !== 'undefined') {
+      var ls = OasiFast.lsGet('geo:' + trimmed.toLowerCase(), 7 * 24 * 60 * 60 * 1000);
+      if (ls && ls.lat) {
+        var fromLs = Object.assign({}, ls, { name: trimmed });
+        resolveCache[cacheKey] = { t: Date.now(), point: fromLs };
+        return Promise.resolve(fromLs);
+      }
+    }
 
     // Instant local landmark / place hit
     var local = searchLocal(trimmed, 3);
@@ -343,31 +351,20 @@ var NaverTransit = (function () {
       return point;
     }
 
-    // First successful geocoder wins (do not reject the race on empty).
-    return new Promise(function (resolve) {
-      var left = 3;
-      var done = false;
-      function one(point) {
-        if (!done && point && point.lat && point.lng) {
-          done = true;
-          resolve(remember(Object.assign({}, point, { name: trimmed })));
-          return;
-        }
-        left -= 1;
-        if (!done && left <= 0) {
-          geocodeNominatim(trimmed).then(function (p) {
-            if (p && p.lat) resolve(remember(Object.assign({}, p, { name: trimmed })));
-            else if (local[0] && local[0].lat) resolve(remember(Object.assign({}, local[0], { name: trimmed })));
-            else resolve(null);
-          }).catch(function () { resolve(null); });
-        }
-      }
-      geocodeOpenMeteo(trimmed).then(one).catch(function () { one(null); });
-      searchRemote(trimmed, 4).then(function (remote) {
-        var best = (remote || []).find(function (p) { return p.lat && p.lng; });
-        one(best || null);
-      }).catch(function () { one(null); });
-      geocodeRemote(trimmed).then(one).catch(function () { one(null); });
+    // Critical path: Open-Meteo only (browser, no Vercel). Background upgrade skipped for speed.
+    var fast = typeof OasiFast !== 'undefined' ? OasiFast.geocode(trimmed) : geocodeOpenMeteo(trimmed);
+    return fast.then(function (p) {
+      if (p && p.lat) return remember(Object.assign({}, p, { name: trimmed }));
+      // Slow fallbacks only if Open-Meteo misses
+      return searchRemote(trimmed, 3).then(function (remote) {
+        var best = (remote || []).find(function (row) { return row.lat && row.lng; });
+        if (best) return remember(Object.assign({}, best, { name: trimmed }));
+        return geocodeNominatim(trimmed).then(function (g) {
+          if (g && g.lat) return remember(Object.assign({}, g, { name: trimmed }));
+          if (local[0] && local[0].lat) return remember(Object.assign({}, local[0], { name: trimmed }));
+          return null;
+        });
+      });
     });
   }
 
