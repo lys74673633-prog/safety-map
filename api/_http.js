@@ -8,7 +8,7 @@ function sendJson(res, status, payload) {
   setCors(res);
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Cache-Control', status >= 400 ? 'no-store' : 'public, max-age=120');
+  res.setHeader('Cache-Control', status >= 400 ? 'no-store' : 'public, max-age=180, s-maxage=300, stale-while-revalidate=600');
   res.end(JSON.stringify(payload));
 }
 

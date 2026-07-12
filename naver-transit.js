@@ -283,18 +283,91 @@ var NaverTransit = (function () {
       .catch(function () { return null; });
   }
 
+  function geocodeOpenMeteo(query) {
+    var q = String(query || '').trim();
+    if (!q) return Promise.resolve(null);
+    var url = 'https://geocoding-api.open-meteo.com/v1/search?name=' +
+      encodeURIComponent(q) + '&count=5&language=ko&format=json&countryCode=KR';
+    return fetch(url)
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var rows = (data && data.results) || [];
+        for (var i = 0; i < rows.length; i++) {
+          var row = rows[i];
+          var lat = Number(row.latitude);
+          var lng = Number(row.longitude);
+          if (lat >= 33 && lat <= 39 && lng >= 124 && lng <= 132) {
+            return {
+              name: q,
+              address: [row.admin3, row.admin2, row.admin1].filter(Boolean).join(' ') || '',
+              lat: lat,
+              lng: lng,
+              kind: '검색',
+              source: 'open-meteo'
+            };
+          }
+        }
+        return null;
+      })
+      .catch(function () { return null; });
+  }
+
+  var resolveCache = {};
+
   function resolvePoint(query) {
     var trimmed = String(query || '').trim();
     if (!trimmed) return Promise.resolve(null);
 
-    // Prefer Naver place search (same source as map.naver.com).
-    return searchRemote(trimmed, 6).then(function (remote) {
-      var best = (remote || []).find(function (p) { return p.lat && p.lng; });
-      if (best) return Object.assign({}, best, { name: trimmed });
-      return geocodeRemote(trimmed).then(function (geo) {
-        if (geo && geo.lat && geo.lng) return Object.assign({}, geo, { name: trimmed });
-        return geocodeNominatim(trimmed);
-      });
+    var cacheKey = normalize(trimmed);
+    var cached = resolveCache[cacheKey];
+    if (cached && Date.now() - cached.t < 15 * 60 * 1000) {
+      return Promise.resolve(Object.assign({}, cached.point));
+    }
+
+    // Instant local landmark / place hit
+    var local = searchLocal(trimmed, 3);
+    if (local[0] && local[0].lat && local[0].lng) {
+      var nameN = normalize(local[0].name);
+      var qN = normalize(trimmed);
+      if (nameN === qN || nameN.indexOf(qN) === 0 || qN.indexOf(nameN) === 0) {
+        var instant = Object.assign({}, local[0], { name: trimmed });
+        resolveCache[cacheKey] = { t: Date.now(), point: instant };
+        return Promise.resolve(instant);
+      }
+    }
+
+    function remember(point) {
+      if (point && point.lat && point.lng) {
+        resolveCache[cacheKey] = { t: Date.now(), point: point };
+      }
+      return point;
+    }
+
+    // First successful geocoder wins (do not reject the race on empty).
+    return new Promise(function (resolve) {
+      var left = 3;
+      var done = false;
+      function one(point) {
+        if (!done && point && point.lat && point.lng) {
+          done = true;
+          resolve(remember(Object.assign({}, point, { name: trimmed })));
+          return;
+        }
+        left -= 1;
+        if (!done && left <= 0) {
+          geocodeNominatim(trimmed).then(function (p) {
+            if (p && p.lat) resolve(remember(Object.assign({}, p, { name: trimmed })));
+            else if (local[0] && local[0].lat) resolve(remember(Object.assign({}, local[0], { name: trimmed })));
+            else resolve(null);
+          }).catch(function () { resolve(null); });
+        }
+      }
+      geocodeOpenMeteo(trimmed).then(one).catch(function () { one(null); });
+      searchRemote(trimmed, 4).then(function (remote) {
+        var best = (remote || []).find(function (p) { return p.lat && p.lng; });
+        one(best || null);
+      }).catch(function () { one(null); });
+      geocodeRemote(trimmed).then(one).catch(function () { one(null); });
     });
   }
 
