@@ -1818,6 +1818,50 @@
   color: var(--muted);
 }
 
+.transit-native-pane {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px 20px;
+  background:
+    radial-gradient(ellipse 70% 40% at 50% 0%, color-mix(in srgb, var(--green) 12%, transparent), transparent 65%),
+    var(--bg);
+}
+
+.transit-native-pane .transit-result-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) 1fr;
+  gap: 14px;
+  height: 100%;
+  min-height: 420px;
+}
+
+.transit-native-pane .transit-map-wrap {
+  min-height: 360px;
+  border: 1px solid color-mix(in srgb, var(--green) 25%, var(--border));
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.transit-native-pane .transit-map {
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+}
+
+.transit-native-pane .transit-detail-panel {
+  overflow: auto;
+  padding: 4px 2px 8px;
+}
+
+@media (max-width: 900px) {
+  .transit-native-pane .transit-result-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* Kakao yellow header clipped; soft green veil for Oasi5 tint */
 .transit-map-frame-clip {
   position: relative;

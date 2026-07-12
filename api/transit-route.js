@@ -1,7 +1,23 @@
 const { sendJson, setCors, fetchJson } = require('./_http');
+const fs = require('fs');
+const path = require('path');
 
 const OSRM = 'https://router.project-osrm.org/route/v1';
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+function getOdsayKey() {
+  const env = String(process.env.ODSAY_API_KEY || '').trim();
+  if (env) return env;
+  try {
+    const localPath = path.join(__dirname, '..', 'odsay-config.local.json');
+    if (fs.existsSync(localPath)) {
+      const raw = JSON.parse(fs.readFileSync(localPath, 'utf8'));
+      const key = String((raw && raw.apiKey) || '').trim();
+      if (key && !/발급|example|입력/i.test(key)) return key;
+    }
+  } catch (err) {}
+  return '';
+}
 
 async function searchOsrm(mode, sx, sy, ex, ey, fromName, toName) {
   const profileMap = { walk: 'foot', car: 'driving', bicycle: 'bike' };
@@ -179,7 +195,7 @@ async function searchTransitNaver(sx, sy, ex, ey, fromName, toName) {
 }
 
 async function searchOdsay(sx, sy, ex, ey, fromName, toName, profile) {
-  const key = process.env.ODSAY_API_KEY;
+  const key = getOdsayKey();
   if (!key) return null;
 
   let opt = 0;
@@ -202,10 +218,45 @@ async function searchOdsay(sx, sy, ex, ey, fromName, toName, profile) {
   const paths = ((data.result || {}).path) || [];
   if (!paths.length) return { error: true, code: 'NO_ROUTE', message: '대중교통 경로를 찾지 못했습니다.' };
 
-  const routes = paths.slice(0, 5).map(function (path, idx) {
-    const info = path.info || {};
+  const routes = paths.slice(0, 5).map(function (pathItem, idx) {
+    const info = pathItem.info || {};
     const walkM = Math.max(0, Number(info.totalWalk) || 0);
     const walkMin = Math.max(0, Number(info.totalWalkTime) || Math.round(walkM / 80));
+    const polyline = [[sy, sx]];
+    const steps = (pathItem.subPath || []).map(function (sub) {
+      const t = Number(sub.trafficType);
+      const type = t === 1 ? 'subway' : t === 2 ? 'bus' : 'walk';
+      const startX = Number(sub.startX);
+      const startY = Number(sub.startY);
+      const endX = Number(sub.endX);
+      const endY = Number(sub.endY);
+      if (Number.isFinite(startX) && Number.isFinite(startY)) pushPoint(polyline, startX, startY);
+      const stops = (((sub.passStopList || {}).stations) || []);
+      stops.forEach(function (st) {
+        const x = Number(st.x);
+        const y = Number(st.y);
+        if (Number.isFinite(x) && Number.isFinite(y)) pushPoint(polyline, x, y);
+      });
+      if (Number.isFinite(endX) && Number.isFinite(endY)) pushPoint(polyline, endX, endY);
+
+      let line = null;
+      if (sub.lane && sub.lane[0]) {
+        line = sub.lane[0].name || sub.lane[0].busNo || null;
+      }
+
+      return {
+        type: type,
+        duration: Math.max(0, Number(sub.sectionTime) || 0),
+        distance: Math.max(0, Number(sub.distance) || 0),
+        from: sub.startName || fromName,
+        to: sub.endName || toName,
+        line: line,
+        stationCount: Math.max(0, Number(sub.stationCount) || 0),
+        notes: [],
+      };
+    });
+    pushPoint(polyline, ex, ey);
+
     return {
       id: idx,
       summary: {
@@ -220,20 +271,8 @@ async function searchOdsay(sx, sy, ex, ey, fromName, toName, profile) {
         firstStop: fromName,
         lastStop: toName,
       },
-      steps: (path.subPath || []).map(function (sub) {
-        const t = Number(sub.trafficType);
-        const type = t === 1 ? 'subway' : t === 2 ? 'bus' : 'walk';
-        return {
-          type: type,
-          duration: Math.max(0, Number(sub.sectionTime) || 0),
-          distance: Math.max(0, Number(sub.distance) || 0),
-          from: sub.startName || fromName,
-          to: sub.endName || toName,
-          line: (sub.lane && sub.lane[0] && (sub.lane[0].name || sub.lane[0].busNo)) || null,
-          notes: [],
-        };
-      }),
-      polyline: [],
+      steps: steps,
+      polyline: polyline,
     };
   });
   return { mode: 'transit', source: 'odsay', routes: routes };
@@ -318,7 +357,7 @@ async function transitExternalFallback(sx, sy, ex, ey, fromName, toName) {
     source: 'external-fallback',
     routes: routes,
     links: links,
-    message: '대중교통 상세 경로를 확인하세요.',
+    message: 'Oasi5에서 안내할 수 있는 대중교통 상세 노선을 찾지 못했습니다. 출발·도착을 바꿔 보거나 도보 경로를 확인해 주세요.',
   };
 }
 
