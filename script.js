@@ -129,6 +129,17 @@ function buildRegionBar() {
   });
 }
 
+function tt(key, varsOrFb, maybeVars) {
+  if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, varsOrFb, maybeVars);
+  if (varsOrFb && typeof varsOrFb === 'object') return key;
+  return varsOrFb != null ? varsOrFb : key;
+}
+
+function regionDisplayName(name) {
+  if (name === '전국') return tt('home.nation', '전국');
+  return name;
+}
+
 function renderCityBar() {
   var cityBar = document.getElementById('city-bar');
   var label = document.getElementById('city-bar-label');
@@ -148,7 +159,7 @@ function renderCityBar() {
   }
 
   cityBar.classList.remove('hidden');
-  label.textContent = currentRegion + ' 시·군 선택';
+  label.textContent = tt('home.cityPickFor', { region: currentRegion });
   buttons.innerHTML = '';
 
   cities.forEach(function (city) {
@@ -157,7 +168,7 @@ function renderCityBar() {
     btn.className = 'city-btn';
     btn.innerHTML =
       city.label +
-      '<span class="city-btn-count">도움 ' + city.help + ' · 위험 ' + city.danger + '</span>';
+      '<span class="city-btn-count">' + tt('home.cityCount', { help: city.help, danger: city.danger }) + '</span>';
     btn.addEventListener('click', function () {
       RegionData.openCityPage(currentRegion, city.name);
     });
@@ -197,13 +208,14 @@ function selectPlace(id) {
   var card = document.getElementById('detail-card');
   card.className = 'detail-card ' + (place.type === 'danger' ? 'danger-type' : '');
   card.innerHTML =
-    '<span class="tag ' + place.type + '">' + (place.type === 'help' ? '도움 시설' : '위험 지역') + ' · ' + place.category + '</span>' +
+    '<span class="tag ' + place.type + '">' + (place.type === 'help' ? tt('place.typeHelp', '도움 시설') : tt('place.typeDanger', '위험 지역')) + ' · ' +
+      (typeof PlaceInfo !== 'undefined' && PlaceInfo.categoryLabel ? PlaceInfo.categoryLabel(place.category) : place.category) + '</span>' +
     (typeof PlaceScores !== 'undefined' ? PlaceScores.renderBadge(place) : '') +
     '<h4>' + place.name + '</h4>' +
     '<p class="address">' + place.address + '</p>' +
     '<p class="desc">' + place.description + '</p>' +
     PlaceInfo.renderInfoSectionsCompact(place) +
-    '<button type="button" class="detail-link detail-link-btn">사진·전체 상세 보기 →</button>';
+    '<button type="button" class="detail-link detail-link-btn">' + tt('home.viewDetail', '사진·전체 상세 보기 →') + '</button>';
   card.classList.remove('hidden');
   card.querySelector('.detail-link-btn').addEventListener('click', function () {
     RegionData.openPlacePage(place.id, { region: place.region, city: place.city });
@@ -223,7 +235,9 @@ function renderList(containerId, items, type) {
   ul.innerHTML = '';
 
   if (items.length === 0) {
-    ul.innerHTML = '<li class="empty-msg">해당 지역에 등록된 ' + (type === 'help' ? '도움 시설' : '위험 지역') + '이 없습니다.</li>';
+    ul.innerHTML = '<li class="empty-msg">' +
+      (type === 'help' ? tt('home.listEmptyHelp', '해당 지역에 등록된 도움 시설이 없습니다.') : tt('home.listEmptyDanger', '해당 지역에 등록된 위험 지역이 없습니다.')) +
+      '</li>';
     return;
   }
 
@@ -236,9 +250,11 @@ function renderList(containerId, items, type) {
         '<div class="name">' + place.name + '</div>' +
         (typeof PlaceScores !== 'undefined' ? PlaceScores.renderBadge(place, true) : '') +
       '</div>' +
-      '<div class="cat">' + place.category + '</div>' +
+      '<div class="cat">' +
+        (typeof PlaceInfo !== 'undefined' && PlaceInfo.categoryLabel ? PlaceInfo.categoryLabel(place.category) : place.category) +
+      '</div>' +
       '<div class="preview">' + place.description + '</div>' +
-      '<div class="open-hint">탭하면 상세 화면으로 이동 →</div>';
+      '<div class="open-hint">' + tt('home.tapHint', '탭하면 상세 화면으로 이동 →') + '</div>';
     li.addEventListener('click', function () {
       RegionData.openPlacePage(place.id, { region: place.region, city: place.city });
     });
@@ -251,13 +267,26 @@ function renderPanel() {
   var helpItems = filtered.filter(function (p) { return p.type === 'help'; });
   var dangerItems = filtered.filter(function (p) { return p.type === 'danger'; });
 
-  document.getElementById('panel-region').textContent = currentRegion;
+  document.getElementById('panel-region').textContent = regionDisplayName(currentRegion);
   document.getElementById('panel-summary').textContent =
     currentRegion === '전국'
-      ? '전국 도움 시설과 위험 지역 목록입니다. 지역을 선택하면 아래에 시·군 버튼이 나타납니다.'
-      : currentRegion + ' 지역입니다. 시·군을 선택하면 해당 도시 화면으로 이동합니다.';
+      ? tt('home.summaryNational', '전국 도움 시설과 위험 지역 목록입니다. 지역을 선택하면 아래에 시·군 버튼이 나타납니다.')
+      : tt('home.summaryRegion', { region: currentRegion });
   document.getElementById('stat-help').textContent = helpItems.length;
   document.getElementById('stat-danger').textContent = dangerItems.length;
+
+  var helpTitle = document.querySelector('#info-panel .panel-col:first-child h3');
+  var dangerTitle = document.querySelector('#info-panel .panel-col:last-child h3');
+  if (helpTitle) helpTitle.innerHTML = '<span class="col-icon help"></span> ' + tt('home.helpTitle', '도움 시설');
+  if (dangerTitle) dangerTitle.innerHTML = '<span class="col-icon danger"></span> ' + tt('home.dangerTitle', '위험 지역');
+  var mapHint = document.querySelector('.map-hint');
+  if (mapHint) mapHint.textContent = tt('home.mapHint', '지역 → 시·군 → 시설 순으로 앱 안에서 이동합니다');
+  var helpStat = document.querySelector('.help-stat');
+  var dangerStat = document.querySelector('.danger-stat');
+  if (helpStat) helpStat.innerHTML = tt('home.statHelp', '도움') + ' <strong id="stat-help">' + helpItems.length + '</strong>';
+  if (dangerStat) dangerStat.innerHTML = tt('home.statDanger', '위험') + ' <strong id="stat-danger">' + dangerItems.length + '</strong>';
+  var footerSources = document.getElementById('footer-sources');
+  if (footerSources) footerSources.textContent = tt('footer.sources', '데이터 출처: 공공복지시설, 여성긴급전화1366, TAAS 교통사고다발지역 등');
 
   renderList('help-list', helpItems, 'help');
   renderList('danger-list', dangerItems, 'danger');
@@ -285,6 +314,8 @@ if (typeof GrowthChart !== 'undefined') {
 }
 
 window.onAppHomeShow = function () {
+  renderCityBar();
+  renderPanel();
   setTimeout(function () {
     map.invalidateSize();
   }, 120);

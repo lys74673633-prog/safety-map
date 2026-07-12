@@ -146,6 +146,19 @@
     }
   };
 
+  function tt(key, varsOrFb, maybeVars) {
+    if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, varsOrFb, maybeVars);
+    if (varsOrFb && typeof varsOrFb === 'object') return key;
+    return varsOrFb != null ? varsOrFb : key;
+  }
+
+  function categoryLabel(cat) {
+    if (!cat) return '';
+    var key = 'cat.' + cat;
+    var translated = tt(key, cat);
+    return translated === key ? cat : translated;
+  }
+
   function parsePhone(text) {
     if (!text) return '';
     var m = text.match(/(?:☎|☏)\s*([\d-]+)/);
@@ -238,7 +251,7 @@
       var tel = place.phone.replace(/[^\d]/g, '');
       rows.push(
         '<div class="practical-row">' +
-          '<span class="practical-label">전화</span>' +
+          '<span class="practical-label">' + tt('place.phone', '전화') + '</span>' +
           '<a class="practical-value practical-phone" href="tel:' + tel + '">' + place.phone + '</a>' +
         '</div>'
       );
@@ -246,7 +259,7 @@
     if (place.hours) {
       rows.push(
         '<div class="practical-row">' +
-          '<span class="practical-label">이용시간</span>' +
+          '<span class="practical-label">' + tt('place.hours', '이용시간') + '</span>' +
           '<span class="practical-value">' + place.hours + '</span>' +
         '</div>'
       );
@@ -254,7 +267,7 @@
     if (place.operator) {
       rows.push(
         '<div class="practical-row">' +
-          '<span class="practical-label">운영</span>' +
+          '<span class="practical-label">' + tt('place.operator', '운영') + '</span>' +
           '<span class="practical-value">' + place.operator + '</span>' +
         '</div>'
       );
@@ -262,7 +275,7 @@
     if (place.website) {
       rows.push(
         '<div class="practical-row">' +
-          '<span class="practical-label">홈페이지</span>' +
+          '<span class="practical-label">' + tt('place.website', '홈페이지') + '</span>' +
           '<a class="practical-value" href="' + place.website + '" target="_blank" rel="noopener">' +
             place.website.replace(/^https?:\/\//, '') +
           '</a>' +
@@ -280,15 +293,15 @@
 
     return (
       '<section class="practical-info ' + (place.type === 'help' ? 'help-type' : 'danger-type') + '">' +
-        '<h2>이용 정보</h2>' +
+        '<h2>' + tt('place.infoTitle', '이용 정보') + '</h2>' +
         (rows.length ? '<div class="practical-grid">' + rows.join('') + '</div>' : '') +
-        (howBlock ? '<h3 class="practical-subhead">이용 방법</h3>' + howBlock : '') +
+        (howBlock ? '<h3 class="practical-subhead">' + tt('place.howTo', '이용 방법') + '</h3>' + howBlock : '') +
       '</section>'
     );
   }
 
   function renderMetaChips(place) {
-    var chips = ['<span class="meta-chip">지역 ' + place.region + '</span>'];
+    var chips = ['<span class="meta-chip">' + tt('place.regionChip', { region: place.region }) + '</span>'];
     if (place.city) chips.push('<span class="meta-chip">' + place.city + '</span>');
     if (place.phone) chips.push('<span class="meta-chip meta-phone">☎ ' + place.phone + '</span>');
     if (place.hours) chips.push('<span class="meta-chip">' + place.hours + '</span>');
@@ -296,14 +309,14 @@
   }
 
   function renderInfoSections(place) {
-    var whyTitle = place.type === 'help' ? '왜 도움이 되나요?' : '왜 주의가 필요한가요?';
+    var whyTitle = place.type === 'help' ? tt('place.whyHelp', '왜 도움이 되나요?') : tt('place.whyDanger', '왜 주의가 필요한가요?');
     var whyClass = place.type === 'help' ? 'info-box help-box' : 'info-box danger-box';
 
     return (
       renderPracticalInfo(place) +
       '<div class="info-sections">' +
         '<section class="info-box">' +
-          '<h2>이곳에서 할 수 있는 것</h2>' +
+          '<h2>' + tt('place.canDoHere', '이곳에서 할 수 있는 것') + '</h2>' +
           '<ul class="info-list">' + renderCanDoList(place.canDo) + '</ul>' +
         '</section>' +
         '<section class="' + whyClass + '">' +
@@ -315,7 +328,7 @@
   }
 
   function renderInfoSectionsCompact(place) {
-    var whyTitle = place.type === 'help' ? '왜 도움이 되나요?' : '왜 주의가 필요한가요?';
+    var whyTitle = place.type === 'help' ? tt('place.whyHelp', '왜 도움이 되나요?') : tt('place.whyDanger', '왜 주의가 필요한가요?');
     var phoneLine = place.phone
       ? '<p class="detail-phone"><a href="tel:' + place.phone.replace(/[^\d]/g, '') + '">☎ ' + place.phone + '</a></p>'
       : '';
@@ -323,7 +336,7 @@
       (typeof PlaceScores !== 'undefined' ? PlaceScores.renderBadge(place) : '') +
       phoneLine +
       '<div class="detail-info-compact">' +
-        '<p class="detail-subhead">할 수 있는 것</p>' +
+        '<p class="detail-subhead">' + tt('place.canDoShort', '할 수 있는 것') + '</p>' +
         '<ul class="info-list compact">' + renderCanDoList(place.canDo.slice(0, 3)) + '</ul>' +
         '<p class="detail-subhead">' + whyTitle + '</p>' +
         '<p class="detail-why">' + place.whyImportant + '</p>' +
@@ -334,6 +347,7 @@
   global.PlaceInfo = {
     enrichPlaces: enrichPlaces,
     getPlaceInfo: getPlaceInfo,
+    categoryLabel: categoryLabel,
     renderPracticalInfo: renderPracticalInfo,
     renderMetaChips: renderMetaChips,
     renderInfoSections: renderInfoSections,

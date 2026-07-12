@@ -1,4 +1,10 @@
 var CityView = (function () {
+  function tt(key, varsOrFb, maybeVars) {
+    if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, varsOrFb, maybeVars);
+    if (varsOrFb && typeof varsOrFb === 'object') return key;
+    return varsOrFb != null ? varsOrFb : key;
+  }
+
   function openPlace(region, city, placeId) {
     AppNav.goPlace(placeId, { region: region, city: city });
   }
@@ -9,7 +15,11 @@ var CityView = (function () {
     ul.innerHTML = '';
 
     if (!items.length) {
-      ul.innerHTML = '<li class="empty-msg">등록된 ' + (type === 'help' ? '도움 시설' : '위험 지역') + '이 없습니다.</li>';
+      ul.innerHTML = '<li class="empty-msg">' +
+        (type === 'help'
+          ? tt('city.listEmptyHelp', '등록된 도움 시설이 없습니다.')
+          : tt('city.listEmptyDanger', '등록된 위험 지역이 없습니다.')) +
+        '</li>';
       return;
     }
 
@@ -21,9 +31,11 @@ var CityView = (function () {
           '<div class="name">' + place.name + '</div>' +
           (typeof PlaceScores !== 'undefined' ? PlaceScores.renderBadge(place, true) : '') +
         '</div>' +
-        '<div class="cat">' + place.category + '</div>' +
+        '<div class="cat">' +
+          (typeof PlaceInfo !== 'undefined' && PlaceInfo.categoryLabel ? PlaceInfo.categoryLabel(place.category) : place.category) +
+        '</div>' +
         '<div class="preview">' + place.description + '</div>' +
-        '<div class="open-hint">탭하면 상세 정보 보기 →</div>';
+        '<div class="open-hint">' + tt('city.tapHint', '탭하면 상세 정보 보기 →') + '</div>';
       li.addEventListener('click', function () {
         openPlace(region, city, place.id);
       });
@@ -43,7 +55,9 @@ var CityView = (function () {
     var cityPlaces = RegionData.getPlacesForCity(region, city);
     if (!cityPlaces.length) {
       root.innerHTML =
-        '<div class="app-view-inner"><div class="error-msg"><p>' + region + ' ' + city + '에 등록된 장소가 없습니다.</p></div></div>';
+        '<div class="app-view-inner"><div class="error-msg"><p>' +
+          tt('city.noPlaces', { region: region, city: city }) +
+        '</p></div></div>';
       return null;
     }
 
@@ -54,26 +68,26 @@ var CityView = (function () {
     root.innerHTML =
       '<div class="app-view-inner city-main">' +
         '<section class="city-hero">' +
-          '<p class="city-breadcrumb">' + region + ' · 시·군</p>' +
+          '<p class="city-breadcrumb">' + tt('city.breadcrumb', { region: region }) + '</p>' +
           '<h1>' + city + '</h1>' +
-          '<p class="city-summary">등록된 도움 시설과 위험 지역입니다. 항목을 누르면 상세 화면으로 이동합니다.</p>' +
+          '<p class="city-summary">' + tt('city.summary', '등록된 도움 시설과 위험 지역입니다. 항목을 누르면 상세 화면으로 이동합니다.') + '</p>' +
           '<div class="city-stats">' +
-            '<span class="stat help-stat">도움 <strong>' + helpItems.length + '</strong></span>' +
-            '<span class="stat danger-stat">위험 <strong>' + dangerItems.length + '</strong></span>' +
+            '<span class="stat help-stat">' + tt('home.statHelp', '도움') + ' <strong>' + helpItems.length + '</strong></span>' +
+            '<span class="stat danger-stat">' + tt('home.statDanger', '위험') + ' <strong>' + dangerItems.length + '</strong></span>' +
           '</div>' +
         '</section>' +
         '<div class="city-layout">' +
           '<section class="city-map-section">' +
-            '<h2>지도</h2>' +
+            '<h2>' + tt('city.mapTitle', '지도') + '</h2>' +
             '<div id="city-map"></div>' +
           '</section>' +
           '<section class="city-lists">' +
             '<div class="city-list-col">' +
-              '<h2><span class="col-icon help"></span> 도움 시설</h2>' +
+              '<h2><span class="col-icon help"></span> ' + tt('home.helpTitle', '도움 시설') + '</h2>' +
               '<ul id="city-help-list" class="place-list city-place-list"></ul>' +
             '</div>' +
             '<div class="city-list-col">' +
-              '<h2><span class="col-icon danger"></span> 위험 지역</h2>' +
+              '<h2><span class="col-icon danger"></span> ' + tt('home.dangerTitle', '위험 지역') + '</h2>' +
               '<ul id="city-danger-list" class="place-list city-place-list"></ul>' +
             '</div>' +
           '</section>' +
@@ -89,7 +103,7 @@ var CityView = (function () {
     );
 
     L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-      attribution: '위성 &copy; Esri',
+      attribution: 'Satellite &copy; Esri',
       maxZoom: 19
     }).addTo(map);
 

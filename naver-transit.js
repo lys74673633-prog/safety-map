@@ -468,7 +468,33 @@ var NaverTransit = (function () {
   }
 
   function getProfileTips(profileId) {
-    return PROFILE_TIPS[profileId] || PROFILE_TIPS.wheelchair;
+    function tip(key, fb) {
+      if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, fb);
+      return fb;
+    }
+    var tips = {
+      wheelchair: [
+        tip('transit.tip.wheelchair1', '저상버스·리프트 버스는 정류장과 차량 앞 표시를 확인하세요.'),
+        tip('transit.tip.wheelchair2', '역사 환승 시 엘리베이터 간 이동 거리가 길 수 있으니 환승 시간을 넉넉히 잡으세요.')
+      ],
+      stroller: [
+        tip('transit.tip.stroller1', '유모차는 엘리베이터·완만한 경사로가 있는 역·쇼핑몰 연결 통로를 우선 선택하세요.'),
+        tip('transit.tip.stroller2', '에스컬레이터만 있는 출구는 피하고 엘리베이터 표시 출구를 이용하세요.')
+      ],
+      walker: [
+        tip('transit.tip.walker1', '도보 구간이 긴 경로는 버스·지하철로 나누어 이동하면 부담이 줄어듭니다.'),
+        tip('transit.tip.walker2', '휴식이 필요하면 역사 내 의자·대합실을 이용할 수 있습니다.')
+      ],
+      visual: [
+        tip('transit.tip.visual1', '시각장애인 안내견은 「장애인 보조견」 표시와 함께 대중교통에 동반 탑승할 수 있습니다.'),
+        tip('transit.tip.visual2', '역사 브레일·음성 안내 시설은 역무원에게 문의하면 안내받을 수 있습니다.')
+      ],
+      elderly: [
+        tip('transit.tip.elderly1', '환승 횟수가 적은 경로를 우선 선택하면 이동 부담이 줄어듭니다.'),
+        tip('transit.tip.elderly2', '지하철·버스 교통약자 좌석·우선석 이용이 가능합니다.')
+      ]
+    };
+    return tips[profileId] || tips.wheelchair;
   }
 
   return {

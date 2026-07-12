@@ -295,6 +295,12 @@ var NewsFeed = (function () {
   }
 
   function openLabel(article) {
+    if (typeof I18n !== 'undefined' && I18n.t) {
+      if (article.sourceType === 'naver') return I18n.t('articles.openNaver');
+      if (article.sourceType === 'cnn') return I18n.t('articles.openCnn');
+      if (article.sourceType === 'google') return I18n.t('articles.openGoogle');
+      return I18n.t('articles.open');
+    }
     if (article.sourceType === 'naver') return '네이버 뉴스에서 기사 보기 →';
     if (article.sourceType === 'cnn') return 'CNN 원문 기사 보기 →';
     if (article.sourceType === 'google') return 'Google 뉴스에서 기사 보기 →';

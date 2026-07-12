@@ -2,6 +2,8 @@ var TransitGuide = (function () {
   var PROFILES = [
     {
       id: 'wheelchair',
+      labelKey: 'transit.profile.wheelchair',
+      descKey: 'transit.profile.wheelchair.desc',
       label: '휠체어',
       desc: '엘리베이터·저상버스 위주',
       tagClass: 'hub-tag-disability',
@@ -9,6 +11,8 @@ var TransitGuide = (function () {
     },
     {
       id: 'stroller',
+      labelKey: 'transit.profile.stroller',
+      descKey: 'transit.profile.stroller.desc',
       label: '유모차',
       desc: '넓은 통로·엘리베이터',
       tagClass: 'hub-tag-child',
@@ -16,6 +20,8 @@ var TransitGuide = (function () {
     },
     {
       id: 'walker',
+      labelKey: 'transit.profile.walker',
+      descKey: 'transit.profile.walker.desc',
       label: '보행 보조기',
       desc: '짧은 도보·완만한 경사',
       tagClass: 'hub-tag-elder',
@@ -23,6 +29,8 @@ var TransitGuide = (function () {
     },
     {
       id: 'visual',
+      labelKey: 'transit.profile.visual',
+      descKey: 'transit.profile.visual.desc',
       label: '시각장애·안내견',
       desc: '음성 안내·안내견 동반',
       tagClass: 'hub-tag-disability',
@@ -30,6 +38,8 @@ var TransitGuide = (function () {
     },
     {
       id: 'elderly',
+      labelKey: 'transit.profile.elderly',
+      descKey: 'transit.profile.elderly.desc',
       label: '고령·보행 느림',
       desc: '환승 적게·좌석 우선',
       tagClass: 'hub-tag-elder',
@@ -73,9 +83,18 @@ var TransitGuide = (function () {
     return '<span class="brand-wordmark">Oasi<span class="brand-five">5</span></span>';
   }
 
-  function tt(key, fallback) {
-    if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, fallback);
-    return fallback != null ? fallback : key;
+  function tt(key, fallbackOrVars, maybeVars) {
+    if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, fallbackOrVars, maybeVars);
+    if (fallbackOrVars && typeof fallbackOrVars === 'object') return key;
+    return fallbackOrVars != null ? fallbackOrVars : key;
+  }
+
+  function profileLabel(p) {
+    return tt(p.labelKey || ('transit.profile.' + p.id), p.label);
+  }
+
+  function profileDesc(p) {
+    return tt(p.descKey || ('transit.profile.' + p.id + '.desc'), p.desc);
   }
 
   function modeLabel(id) {
@@ -110,16 +129,16 @@ var TransitGuide = (function () {
   function renderNativeSteps(route) {
     var TR = typeof TransitRoutes !== 'undefined' ? TransitRoutes : null;
     var steps = TR ? TR.annotateSteps(route.steps || [], state.profileId) : (route.steps || []);
-    if (!steps.length) return '<p class="hub-section-note">상세 구간 정보가 없습니다.</p>';
+    if (!steps.length) return '<p class="hub-section-note">' + escapeHtml(tt('transit.noSteps', '상세 구간 정보가 없습니다.')) + '</p>';
     return (
       '<ol class="transit-step-list">' +
         steps.map(function (step) {
           var icon = TR ? TR.stepIcon(step.type) : 'walk';
-          var title = TR ? TR.stepTitle(step) : (step.label || step.instruction || '이동');
+          var title = TR ? TR.stepTitle(step) : (step.label || step.instruction || tt('transit.move', '이동'));
           var meta = [];
           if (TR && step.duration != null && step.duration > 0) meta.push(TR.formatDuration(step.duration));
           if (TR && step.distance) meta.push(TR.formatDistance(step.distance));
-          if (step.stationCount) meta.push(step.stationCount + '개 역');
+          if (step.stationCount) meta.push(tt('transit.stations', { n: step.stationCount }));
           return (
             '<li class="transit-step">' +
               '<span class="transit-step-icon" data-type="' + escapeHtml(icon) + '" aria-hidden="true"></span>' +
@@ -144,11 +163,12 @@ var TransitGuide = (function () {
     var routes = state.routes || [];
     var selected = routes[state.selectedRouteIndex] || routes[0];
     var label = modeLabel(state.mode);
+    var pLabel = profileLabel(profile);
 
     if (state.loading) {
       return (
         '<div class="transit-native-pane">' +
-          '<p class="hub-section-note access-loading-note">Oasi5 경로를 찾는 중…</p>' +
+          '<p class="hub-section-note access-loading-note">' + escapeHtml(tt('transit.finding', 'Oasi5 경로를 찾는 중…')) + '</p>' +
         '</div>'
       );
     }
@@ -158,8 +178,8 @@ var TransitGuide = (function () {
         '<div class="transit-native-pane">' +
           '<div class="transit-map-empty-card" style="margin:24px auto;">' +
             brandHtml() +
-            '<p class="transit-map-empty-title">경로를 찾지 못했습니다</p>' +
-            '<p class="transit-map-empty-desc">출발·도착지를 다시 확인하거나, 다른 이동 수단을 선택해 보세요.</p>' +
+            '<p class="transit-map-empty-title">' + escapeHtml(tt('transit.noRoute', '경로를 찾지 못했습니다')) + '</p>' +
+            '<p class="transit-map-empty-desc">' + escapeHtml(tt('transit.noRouteHint', '출발·도착지를 다시 확인하거나, 다른 이동 수단을 선택해 보세요.')) + '</p>' +
           '</div>' +
         '</div>'
       );
@@ -167,26 +187,32 @@ var TransitGuide = (function () {
 
     var summary = selected.summary || {};
     var comfort = TR && selected.comfortScore != null ? TR.comfortLabel(selected.comfortScore) : null;
-    var metaBits = [label, profile.label];
-    if (summary.transfers != null) metaBits.push('환승 ' + summary.transfers + '회');
+    var metaBits = [label, pLabel];
+    if (summary.transfers != null) metaBits.push(tt('transit.transfersN', { n: summary.transfers }));
     if (TR && summary.payment != null) metaBits.push(TR.formatPayment(summary.payment));
-    if (TR && summary.walkMeters) metaBits.push('도보 ' + TR.formatDistance(summary.walkMeters));
+    if (TR && summary.walkMeters) metaBits.push(tt('transit.walkMeta', { dist: TR.formatDistance(summary.walkMeters) }));
 
     var cards = routes.map(function (route, i) {
       var s = route.summary || {};
       var c = TR && route.comfortScore != null ? TR.comfortLabel(route.comfortScore) : null;
       var active = i === state.selectedRouteIndex ? ' is-active' : '';
-      var routeLabel = TR && TR.localizeTransitText
-        ? TR.localizeTransitText(s.label || label)
-        : (s.label || label);
-      if (!/[가-힣]/.test(String(routeLabel || ''))) routeLabel = label;
+      var routeLabel = s.label || label;
+      if (TR && TR.localizeTransitText) routeLabel = TR.localizeTransitText(routeLabel);
+      if (typeof I18n !== 'undefined' && I18n.getLang && I18n.getLang() === 'ko') {
+        routeLabel = String(routeLabel || label)
+          .replace(/Bus/gi, '')
+          .replace(/[A-Za-z]{2,}/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        if (!routeLabel || !/[가-힣]/.test(routeLabel)) routeLabel = label;
+      }
       var cardMeta = [routeLabel];
-      if (s.transfers != null) cardMeta.push('환승 ' + s.transfers);
-      if (s.walkMeters && TR) cardMeta.push('도보 ' + TR.formatDistance(s.walkMeters));
+      if (s.transfers != null) cardMeta.push(tt('transit.transfersShort', { n: s.transfers }));
+      if (s.walkMeters && TR) cardMeta.push(tt('transit.walkMeta', { dist: TR.formatDistance(s.walkMeters) }));
       return (
         '<button type="button" class="transit-route-card' + active + '" data-route-index="' + i + '">' +
           '<span class="transit-route-card-time">' +
-            escapeHtml(TR ? TR.formatDuration(s.totalMinutes) : ((s.totalMinutes || '?') + '분')) +
+            escapeHtml(TR ? TR.formatDuration(s.totalMinutes) : tt('transit.min', { n: s.totalMinutes || '?' })) +
           '</span>' +
           '<span class="transit-route-card-meta">' + escapeHtml(cardMeta.join(' · ')) + '</span>' +
           (c ? '<span class="transit-route-card-comfort ' + c.className + '">' + escapeHtml(c.text) + '</span>' : '') +
@@ -222,7 +248,7 @@ var TransitGuide = (function () {
               : '') +
           '</div>' +
           '<div class="transit-map-wrap">' +
-            '<div id="transit-oasi-map" class="transit-map" role="img" aria-label="경로 지도"></div>' +
+            '<div id="transit-oasi-map" class="transit-map" role="img" aria-label="' + escapeHtml(tt('transit.mapAria', '경로 지도')) + '"></div>' +
           '</div>' +
         '</div>' +
       '</div>'
@@ -251,7 +277,7 @@ var TransitGuide = (function () {
         '<p class="transit-map-route">' +
           escapeHtml(state.fromPoint.name) + ' → ' + escapeHtml(state.toPoint.name) +
           ' · ' + escapeHtml(modeLabel(state.mode)) +
-          ' · ' + escapeHtml(profile.label) +
+          ' · ' + escapeHtml(profileLabel(profile)) +
           ' · <span class="transit-map-privacy">' + escapeHtml(tt('transit.ownRoute', 'Oasi5 자체 경로')) + '</span>' +
         '</p>'
       );
@@ -283,8 +309,8 @@ var TransitGuide = (function () {
             PROFILES.map(function (p) {
               var active = p.id === state.profileId ? ' is-active' : '';
               return (
-                '<button type="button" class="transit-map-chip' + active + '" data-profile="' + p.id + '" title="' + escapeHtml(p.desc) + '">' +
-                  escapeHtml(p.label) +
+                '<button type="button" class="transit-map-chip' + active + '" data-profile="' + p.id + '" title="' + escapeHtml(profileDesc(p)) + '">' +
+                  escapeHtml(profileLabel(p)) +
                 '</button>'
               );
             }).join('') +
@@ -314,14 +340,14 @@ var TransitGuide = (function () {
   function loadRoutes() {
     if (typeof TransitRoutes === 'undefined') {
       state.routes = [];
-      state.error = '경로 모듈을 불러오지 못했습니다.';
+      state.error = tt('transit.error.module', '경로 모듈을 불러오지 못했습니다.');
       state.loading = false;
       mount();
       return;
     }
     if (!state.fromPoint || !state.toPoint || !state.fromPoint.lat || !state.toPoint.lat) {
       state.routes = [];
-      state.error = '출발·도착 좌표를 찾지 못했습니다.';
+      state.error = tt('transit.noCoords', '출발·도착 좌표를 찾지 못했습니다.');
       state.loading = false;
       mount();
       return;
@@ -334,20 +360,20 @@ var TransitGuide = (function () {
         state.routes = TransitRoutes.rankRoutes(list, state.profileId);
         state.selectedRouteIndex = 0;
         state.loading = false;
-        state.error = state.routes.length ? '' : '경로를 찾지 못했습니다.';
+        state.error = state.routes.length ? '' : tt('transit.noRoute', '경로를 찾지 못했습니다.');
         mount();
       })
       .catch(function (err) {
         state.routes = [];
         state.loading = false;
-        state.error = (err && err.message) || '경로를 불러오지 못했습니다.';
+        state.error = (err && err.message) || tt('transit.error.load', '경로를 불러오지 못했습니다.');
         mount();
       });
   }
 
   function runRouteSearch() {
     if (!state.from || !state.to) {
-      state.error = '출발지와 도착지를 입력해 주세요.';
+      state.error = tt('transit.needBoth', '출발지와 도착지를 입력해 주세요.');
       state.showResult = false;
       state.routes = [];
       mount();
@@ -381,7 +407,7 @@ var TransitGuide = (function () {
       state.toPoint = asPoint(state.to, pts[1]);
       if (!state.fromPoint.lat || !state.toPoint.lat) {
         state.loading = false;
-        state.error = '출발·도착 위치를 찾지 못했습니다.';
+        state.error = tt('transit.noLocation', '출발·도착 위치를 찾지 못했습니다.');
         mount();
         return;
       }
@@ -391,7 +417,7 @@ var TransitGuide = (function () {
       state.fromPoint = asPoint(state.from, null);
       state.toPoint = asPoint(state.to, null);
       state.routes = [];
-      state.error = '출발·도착 위치를 찾지 못했습니다.';
+      state.error = tt('transit.noLocation', '출발·도착 위치를 찾지 못했습니다.');
       mount();
     });
   }

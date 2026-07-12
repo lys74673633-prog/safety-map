@@ -10,6 +10,12 @@ var ArticlesHub = (function () {
       .replace(/"/g, '&quot;');
   }
 
+  function tt(key, varsOrFb, maybeVars) {
+    if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, varsOrFb, maybeVars);
+    if (varsOrFb && typeof varsOrFb === 'object') return key;
+    return varsOrFb != null ? varsOrFb : key;
+  }
+
   function renderRow(article) {
     var tags = article.tags.map(function (t) {
       return '<span class="hub-tag ' + escapeHtml(article.tagClass) + '">' + escapeHtml(t) + '</span>';
@@ -25,16 +31,17 @@ var ArticlesHub = (function () {
     }
 
     var translatedNote = article.translated
-      ? ' <span class="news-translated-badge">번역</span>'
+      ? ' <span class="news-translated-badge">' + escapeHtml(tt('articles.translated', '번역')) + '</span>'
       : '';
 
     var thumb = article.image
       ? '<div class="news-article-thumb"><img src="' + escapeHtml(article.image) + '" alt="" loading="lazy" decoding="async" /></div>'
-      : '<div class="news-article-thumb news-article-thumb-empty" aria-hidden="true"><span>기사</span></div>';
+      : '<div class="news-article-thumb news-article-thumb-empty" aria-hidden="true"><span>' +
+          escapeHtml(tt('articles.thumb', '기사')) + '</span></div>';
 
     var openLabel = typeof NewsFeed !== 'undefined'
       ? NewsFeed.openLabel(article)
-      : '원문 기사 보기 →';
+      : tt('articles.open', '원문 기사 보기 →');
 
     return (
       '<li class="news-article-row">' +
@@ -45,7 +52,8 @@ var ArticlesHub = (function () {
             '<h3 class="news-article-title">' + escapeHtml(article.title) + '</h3>' +
             '<p class="news-article-meta">' + escapeHtml(article.source) + ' · ' + escapeHtml(article.date) + '</p>' +
             '<p class="news-article-summary">' + escapeHtml(article.summary) + '</p>' +
-            '<p class="news-article-related"><span class="news-article-related-label">관련 키워드</span> ' + escapeHtml(article.related) + '</p>' +
+            '<p class="news-article-related"><span class="news-article-related-label">' +
+              escapeHtml(tt('articles.related', '관련 키워드')) + '</span> ' + escapeHtml(article.related) + '</p>' +
             '<span class="news-article-open">' + escapeHtml(openLabel) + '</span>' +
           '</div>' +
         '</a>' +
@@ -53,31 +61,32 @@ var ArticlesHub = (function () {
     );
   }
 
-  function renderArticles(articles, meta) {
-    var updatedText = '';
-    if (meta && typeof NewsFeed !== 'undefined') {
-      if (meta.error) {
-        updatedText = '최신 기사를 불러오지 못했습니다. 잠시 후 자동으로 다시 시도합니다.';
-      } else if (meta.refreshing) {
-        updatedText = '기사 자동 갱신 중…';
-      } else if (meta.updatedAt) {
-        updatedText = '마지막 갱신: ' + NewsFeed.formatUpdatedAt(meta.updatedAt);
-      }
+  function updatedLabel(meta) {
+    if (!meta || typeof NewsFeed === 'undefined') return '';
+    if (meta.error) return tt('articles.error', '최신 기사를 불러오지 못했습니다. 잠시 후 자동으로 다시 시도합니다.');
+    if (meta.refreshing) return tt('articles.refreshing', '기사 자동 갱신 중…');
+    if (meta.updatedAt) {
+      return tt('articles.lastUpdated', { time: NewsFeed.formatUpdatedAt(meta.updatedAt) });
     }
+    return '';
+  }
+
+  function renderArticles(articles, meta) {
+    var updatedText = updatedLabel(meta);
 
     return (
       '<main class="app-view-inner hub-view">' +
         '<div class="hub-hero">' +
           '<h1 class="hub-page-title">' +
             '<span class="hub-page-brand">Oasi<span class="brand-five">5</span></span>' +
-            '<span class="hub-page-en">Articles</span>' +
+            '<span class="hub-page-en">' + escapeHtml(tt('articles.sectionTitle', '최근 보도')) + '</span>' +
           '</h1>' +
         '</div>' +
         '<section class="hub-section">' +
           '<div class="hub-section-toolbar">' +
             '<div>' +
-              '<h2>최근 보도</h2>' +
-              '<p class="hub-section-note">네이버·Google·CNN 기사를 모아 자동으로 갱신합니다. CNN 등 영문 기사는 한국어로 번역합니다.</p>' +
+              '<h2>' + escapeHtml(tt('articles.sectionTitle', '최근 보도')) + '</h2>' +
+              '<p class="hub-section-note">' + escapeHtml(tt('articles.sectionNote', '네이버·Google·CNN 기사를 모아 자동으로 갱신합니다. CNN 등 영문 기사는 한국어로 번역합니다.')) + '</p>' +
             '</div>' +
             (updatedText ? '<span class="hub-updated-at" id="articles-updated">' + escapeHtml(updatedText) + '</span>' : '') +
           '</div>' +
@@ -91,7 +100,7 @@ var ArticlesHub = (function () {
     var updated = el.querySelector('#articles-updated');
     if (!updated || typeof NewsFeed === 'undefined') return;
     if (refreshing) {
-      updated.textContent = '기사 자동 갱신 중…';
+      updated.textContent = tt('articles.refreshing', '기사 자동 갱신 중…');
     }
   }
 
@@ -104,14 +113,8 @@ var ArticlesHub = (function () {
       el.innerHTML = renderArticles(result.articles, result);
       return;
     }
-    if (updated && typeof NewsFeed !== 'undefined') {
-      if (result.error) {
-        updated.textContent = '최신 기사를 불러오지 못했습니다. 잠시 후 자동으로 다시 시도합니다.';
-      } else if (result.refreshing) {
-        updated.textContent = '기사 자동 갱신 중…';
-      } else if (result.updatedAt) {
-        updated.textContent = '마지막 갱신: ' + NewsFeed.formatUpdatedAt(result.updatedAt);
-      }
+    if (updated) {
+      updated.textContent = updatedLabel(result);
     }
   }
 
@@ -155,10 +158,12 @@ var ArticlesHub = (function () {
   function mount() {
     var el = document.getElementById('view-articles');
     if (!el) return;
-
-    showArticles(el);
-    startAutoRefresh(el);
+    showArticles(el).then(function () {
+      startAutoRefresh(el);
+    });
   }
 
-  return { mount: mount, renderRow: renderRow };
+  return {
+    mount: mount
+  };
 })();

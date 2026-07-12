@@ -72,19 +72,25 @@
     });
   }
 
+  function tt(key, varsOrFb, maybeVars) {
+    if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, varsOrFb, maybeVars);
+    if (varsOrFb && typeof varsOrFb === 'object') return key;
+    return varsOrFb != null ? varsOrFb : key;
+  }
+
   function renderBadge(place, compact) {
     var cls = 'score-badge ' + (place.type === 'help' ? 'help-score' : 'danger-score');
     if (compact) cls += ' compact';
     if (place.type === 'help') {
       return (
-        '<span class="' + cls + '" title="도움 정도: 서비스 접근성·지원 범위 기준">' +
-          '도움 ' + place.helpScore + '%' +
+        '<span class="' + cls + '" title="' + tt('score.helpTitle') + '">' +
+          tt('score.help', { n: place.helpScore }) +
         '</span>'
       );
     }
     return (
-      '<span class="' + cls + '" title="위험도: 사고·피해 가능성 기준">' +
-        '위험 ' + place.dangerScore + '%' +
+      '<span class="' + cls + '" title="' + tt('score.dangerTitle') + '">' +
+        tt('score.danger', { n: place.dangerScore }) +
       '</span>'
     );
   }
@@ -92,7 +98,7 @@
   function renderMeter(place) {
     var isHelp = place.type === 'help';
     var value = isHelp ? place.helpScore : place.dangerScore;
-    var label = isHelp ? '도움 정도' : '위험도';
+    var label = isHelp ? tt('score.helpLabel') : tt('score.dangerLabel');
     var cls = isHelp ? 'help-score' : 'danger-score';
     return (
       '<div class="score-meter ' + cls + '">' +
@@ -104,9 +110,7 @@
           '<div class="score-meter-fill" style="width:' + value + '%"></div>' +
         '</div>' +
         '<p class="score-meter-note">' +
-          (isHelp
-            ? '전화·홈페이지·프로그램·공식 시설 정보 등을 반영한 도움 지수입니다.'
-            : 'TAAS·지형·관광·교통 특성 등을 반영한 위험 지수입니다.') +
+          (isHelp ? tt('score.helpNote') : tt('score.dangerNote')) +
         '</p>' +
       '</div>'
     );

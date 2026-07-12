@@ -101,9 +101,34 @@ function pushPoint(polyline, lng, lat) {
       line = '지하철';
     }
     line = String(line)
-      .replace(/\bBus\b/gi, '버스')
-      .replace(/\bSubway\b/gi, '지하철')
-      .replace(/\bLine\s*(\d+)\b/gi, '$1호선');
+      .replace(/Green\s*Bus/gi, '지선버스')
+      .replace(/Blue\s*Bus/gi, '간선버스')
+      .replace(/Red\s*Bus/gi, '광역버스')
+      .replace(/Yellow\s*Bus/gi, '순환버스')
+      .replace(/Express\s*Bus/gi, '광역버스')
+      .replace(/Trunk\s*Bus/gi, '간선버스')
+      .replace(/Branch\s*Bus/gi, '지선버스')
+      .replace(/Bus/gi, ' ')
+      .replace(/Subway/gi, '지하철')
+      .replace(/Line\s*(\d+)/gi, '$1호선')
+      .replace(/[A-Za-z]{2,}/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (stype === 'BUS') {
+      const noMatch = String((routes[0] && (routes[0].shortName || routes[0].name || '')) + ' ' + line)
+        .match(/[A-Za-z]?\d{1,5}[A-Za-z]?/);
+      const busNo = noMatch ? noMatch[0].toUpperCase() : '';
+      const kind = /광역/.test(line) ? '광역버스'
+        : /간선/.test(line) ? '간선버스'
+        : /지선/.test(line) ? '지선버스'
+        : /마을/.test(line) ? '마을버스'
+        : /급행/.test(line) ? '급행버스'
+        : /순환/.test(line) ? '순환버스'
+        : '버스';
+      line = busNo ? (kind + ' ' + busNo) : kind;
+    } else if (!line) {
+      line = '지하철';
+    }
     const stops = step.stops || [];
     const fromSt = stops[0] ? (stops[0].displayName || stops[0].name) : '';
     const toSt = stops.length ? (stops[stops.length - 1].displayName || stops[stops.length - 1].name) : '';
@@ -260,14 +285,57 @@ async function searchOdsay(sx, sy, ex, ey, fromName, toName, profile) {
       if (sub.lane && sub.lane[0]) {
         const lane = sub.lane[0];
         if (type === 'bus') {
-          const busNo = lane.busNoKor || lane.busNo || '';
-          const busName = lane.nameKor || lane.name || '';
-          if (busNo && /[가-힣]/.test(String(busName))) line = String(busName);
-          else if (busNo) line = '버스 ' + String(busNo);
-          else if (busName) line = String(busName);
-          else line = '버스';
+          const rawNo = String(lane.busNoKor || lane.busNo || '').trim();
+          const rawName = String(lane.nameKor || lane.name || '').trim();
+          const blob = (rawName + ' ' + rawNo).replace(/Bus/gi, ' ');
+          const noMatch = blob.match(/[A-Za-z]?\d{1,5}[A-Za-z]?/);
+          const busNo = noMatch ? noMatch[0].toUpperCase() : '';
+          const nameKo = rawName
+            .replace(/Green\s*Bus/gi, '지선버스')
+            .replace(/Blue\s*Bus/gi, '간선버스')
+            .replace(/Red\s*Bus/gi, '광역버스')
+            .replace(/Yellow\s*Bus/gi, '순환버스')
+            .replace(/Express\s*Bus/gi, '광역버스')
+            .replace(/Trunk\s*Bus/gi, '간선버스')
+            .replace(/Branch\s*Bus/gi, '지선버스')
+            .replace(/Village\s*Bus/gi, '마을버스')
+            .replace(/Town\s*Bus/gi, '마을버스')
+            .replace(/Local\s*Bus/gi, '시내버스')
+            .replace(/City\s*Bus/gi, '시내버스')
+            .replace(/General\s*Bus/gi, '일반버스')
+            .replace(/Rapid\s*Bus/gi, '급행버스')
+            .replace(/Bus/gi, '')
+            .replace(/Green/gi, '지선')
+            .replace(/Blue/gi, '간선')
+            .replace(/Red/gi, '광역')
+            .replace(/Yellow/gi, '순환');
+          const kind = /광역/.test(nameKo) ? '광역버스'
+            : /시외/.test(nameKo) ? '시외버스'
+            : /공항/.test(nameKo) ? '공항버스'
+            : /마을/.test(nameKo) ? '마을버스'
+            : /시내/.test(nameKo) ? '시내버스'
+            : /일반/.test(nameKo) ? '일반버스'
+            : /간선/.test(nameKo) ? '간선버스'
+            : /지선/.test(nameKo) ? '지선버스'
+            : /급행/.test(nameKo) ? '급행버스'
+            : /순환/.test(nameKo) ? '순환버스'
+            : '버스';
+          line = busNo ? (kind + ' ' + busNo) : kind;
         } else if (type === 'subway') {
-          line = lane.nameKor || lane.name || lane.subwayCode || '지하철';
+          const subRaw = String(lane.nameKor || lane.name || lane.subwayCode || '지하철');
+          const subNo = (subRaw.match(/\d{1,2}/) || [])[0];
+          if (subNo && (/Line/i.test(subRaw) || /호선/.test(subRaw) || /^\d+$/.test(String(lane.subwayCode || '')))) {
+            line = subNo + '호선';
+          } else {
+            line = subRaw
+              .replace(/Line\s*(\d+)/gi, '$1호선')
+              .replace(/(\d+)(?:st|nd|rd|th)?\s*Line/gi, '$1호선')
+              .replace(/Subway/gi, '지하철')
+              .replace(/Metro/gi, '지하철')
+              .replace(/[A-Za-z]/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim() || '지하철';
+          }
         } else {
           line = lane.nameKor || lane.name || null;
         }

@@ -100,15 +100,21 @@ var AppNav = (function () {
     var legend = document.querySelector('.header .legend');
     if (!backBtn) return;
 
+    function tt(key, varsOrFb, maybeVars) {
+      if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, varsOrFb, maybeVars);
+      if (varsOrFb && typeof varsOrFb === 'object') return key;
+      return varsOrFb != null ? varsOrFb : key;
+    }
+
     updateHeaderNav();
 
     if (TOP_VIEWS.indexOf(state.view) >= 0) {
       backBtn.classList.add('hidden');
       if (legend) legend.classList.toggle('hidden', state.view !== 'home');
-      if (state.view === 'home') document.title = 'Oasi5';
-      else if (state.view === 'articles') document.title = '소식 · Oasi5';
-      else if (state.view === 'access') document.title = '시설 추천 · Oasi5';
-      else if (state.view === 'transit') document.title = '길찾기 · Oasi5';
+      if (state.view === 'home') document.title = tt('title.home', 'Oasi5');
+      else if (state.view === 'articles') document.title = tt('title.articles', '소식 · Oasi5');
+      else if (state.view === 'access') document.title = tt('title.access', '시설 추천 · Oasi5');
+      else if (state.view === 'transit') document.title = tt('title.transit', '길찾기 · Oasi5');
       return;
     }
 
@@ -116,16 +122,16 @@ var AppNav = (function () {
     if (legend) legend.classList.add('hidden');
 
     if (state.view === 'city') {
-      backBtn.textContent = '← 지도 홈';
-      document.title = state.region + ' ' + state.city + ' · Oasi5';
+      backBtn.textContent = tt('nav.backHome', '← 지도 홈');
+      document.title = tt('title.city', { region: state.region, city: state.city });
     } else if (state.view === 'place') {
       if (state.back && state.back.region && state.back.city) {
         backBtn.textContent = '← ' + state.back.region + ' ' + state.back.city;
       } else {
-        backBtn.textContent = '← 지도 홈';
+        backBtn.textContent = tt('nav.backHome', '← 지도 홈');
       }
       var place = typeof places !== 'undefined' ? places[state.placeId] : null;
-      document.title = (place ? place.name : '장소') + ' · Oasi5';
+      document.title = tt('title.place', { name: place ? place.name : tt('place.unnamed', '장소') });
     }
   }
 
@@ -279,9 +285,18 @@ var AppNav = (function () {
   function refreshLanguage() {
     if (typeof I18n !== 'undefined') I18n.apply();
     updateHeader();
+    if (state.view === 'home') {
+      if (typeof window.onAppHomeShow === 'function') window.onAppHomeShow();
+    }
     if (state.view === 'transit' && typeof TransitGuide !== 'undefined') TransitGuide.mount();
     if (state.view === 'access' && typeof DisabilityAccess !== 'undefined') DisabilityAccess.mount();
     if (state.view === 'articles' && typeof ArticlesHub !== 'undefined') ArticlesHub.mount();
+    if (state.view === 'city' && typeof CityView !== 'undefined' && state.region && state.city) {
+      cityMapInstance = CityView.render(state.region, state.city, cityMapInstance);
+    }
+    if (state.view === 'place' && typeof PlaceView !== 'undefined' && state.placeId != null) {
+      placeMapInstance = PlaceView.render(state.placeId, state.region, state.city, placeMapInstance);
+    }
   }
 
   function init() {

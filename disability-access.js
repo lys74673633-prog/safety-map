@@ -542,8 +542,17 @@ var DisabilityAccess = (function () {
 
   function formatDistance(km) {
     if (km == null || km < 0) return '';
-    if (km < 1) return Math.max(1, Math.round(km * 1000)) + '미터';
-    return km.toFixed(1) + '킬로미터';
+    if (km < 1) {
+      return tt('access.meters', { n: Math.max(1, Math.round(km * 1000)) });
+    }
+    return tt('access.kilometers', { n: km.toFixed(1) });
+  }
+
+  function kindLabel(kind) {
+    if (kind === '카페') return tt('access.cafe', '카페');
+    if (kind === '식당') return tt('access.food', '식당');
+    if (kind === '가게·쇼핑') return tt('access.shop', '가게·쇼핑');
+    return kind;
   }
 
   function encodePlaceData(item) {
@@ -812,8 +821,8 @@ var DisabilityAccess = (function () {
       source: item.source === 'naver' ? 'naver' : 'nearby',
       distanceKm: item.distanceKm,
       upgradePhoto: !item.image,
-      audienceFor: '휠체어·유모차·보행 보조 — 주변 검색',
-      note: '목적지에서 ' + formatDistance(item.distanceKm) + ' 거리입니다. 입장 전 계단·통로 여부를 확인하세요.'
+      audienceFor: tt('access.nearbyAudience', '휠체어·유모차·보행 보조 — 주변 검색'),
+      note: tt('access.nearbyNote', { dist: formatDistance(item.distanceKm) })
     };
   }
 
@@ -871,12 +880,18 @@ var DisabilityAccess = (function () {
     return nearby.slice(0, NEARBY_LIMIT);
   }
 
+  function tt(key, fallbackOrVars, maybeVars) {
+    if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, fallbackOrVars, maybeVars);
+    if (fallbackOrVars && typeof fallbackOrVars === 'object') return key;
+    return fallbackOrVars != null ? fallbackOrVars : key;
+  }
+
   function renderSearchButton() {
     var hasQuery = !!state.destination.trim();
     var busy = state.resolvingDestination || isNearbyLoading();
     var hidden = hasQuery ? '' : ' hidden';
     var disabled = busy ? ' disabled' : '';
-    var label = busy ? '검색 중…' : '검색';
+    var label = busy ? tt('access.searching', '검색 중…') : tt('access.search', '검색');
     return (
       '<button type="button" id="access-dest-search" class="access-dest-search-btn"' + hidden + disabled +
         ' aria-label="' + label + '" title="' + label + '">' +
@@ -893,25 +908,27 @@ var DisabilityAccess = (function () {
   function renderDestinationPanel() {
     var status = '';
     if (state.resolvingDestination) {
-      status = '<p class="access-dest-status access-loading-note">목적지를 찾는 중…</p>';
+      status = '<p class="access-dest-status access-loading-note">' + escapeHtml(tt('access.statusLoading', '목적지를 찾는 중…')) + '</p>';
     } else if (state.destinationPoint && state.destinationPoint.lat) {
       status = '<p class="access-dest-status is-active">' +
-        '<strong>' + escapeHtml(state.destinationPoint.name || state.destination) + '</strong> 주변 ' +
-        NEARBY_RADIUS_KM + 'km 이내 시설을 가까운 순으로 보여줍니다.</p>';
+        escapeHtml(tt('access.statusActive', {
+          place: state.destinationPoint.name || state.destination,
+          km: NEARBY_RADIUS_KM
+        })) + '</p>';
     } else if (state.destination.trim()) {
-      status = '<p class="access-dest-status is-warning">위치를 찾지 못했습니다. 장소명을 바꿔 다시 검색해 주세요.</p>';
+      status = '<p class="access-dest-status is-warning">' + escapeHtml(tt('access.statusFail', '위치를 찾지 못했습니다. 장소명을 바꿔 다시 검색해 주세요.')) + '</p>';
     } else {
-      status = '<p class="access-dest-status">가고 싶은 장소를 입력한 뒤 검색하면 주변 카페·식당·쇼핑을 추천합니다.</p>';
+      status = '<p class="access-dest-status">' + escapeHtml(tt('access.statusIdle', '가고 싶은 장소를 입력한 뒤 검색하면 주변 카페·식당·쇼핑을 추천합니다.')) + '</p>';
     }
 
     return (
       '<section class="hub-section access-dest-panel">' +
-        '<h2>가게 될 곳</h2>' +
+        '<h2>' + escapeHtml(tt('access.destTitle', '가게 될 곳')) + '</h2>' +
         '<div class="access-dest-search-row">' +
           '<div class="access-dest-field">' +
             '<input type="text" id="access-dest" class="transit-input access-dest-input" ' +
-              'placeholder="가고 싶은 장소" ' +
-              'value="' + escapeHtml(state.destination) + '" autocomplete="off" aria-label="가게 될 곳" />' +
+              'placeholder="' + escapeHtml(tt('access.placeholder', '가고 싶은 장소')) + '" ' +
+              'value="' + escapeHtml(state.destination) + '" autocomplete="off" aria-label="' + escapeHtml(tt('access.destTitle', '가게 될 곳')) + '" />' +
           '</div>' +
           renderSearchButton() +
         '</div>' +
@@ -1074,11 +1091,18 @@ var DisabilityAccess = (function () {
 
     var actions = '';
     if (item.lat && item.lng) {
-      actions += '<a class="facility-recommend-btn" href="https://www.google.com/maps?q=' + item.lat + ',' + item.lng + '" target="_blank" rel="noopener noreferrer">지도 열기</a>';
+      actions += '<a class="facility-recommend-btn" href="https://www.google.com/maps?q=' + item.lat + ',' + item.lng + '" target="_blank" rel="noopener noreferrer">' +
+        escapeHtml(tt('access.openMap', '지도 열기')) + '</a>';
     }
     if (item.address) {
-      actions += '<a class="facility-recommend-btn secondary" href="https://search.naver.com/search.naver?query=' + encodeURIComponent(item.name + ' ' + item.address) + '" target="_blank" rel="noopener noreferrer">길찾기</a>';
+      actions += '<a class="facility-recommend-btn secondary" href="https://search.naver.com/search.naver?query=' + encodeURIComponent(item.name + ' ' + item.address) + '" target="_blank" rel="noopener noreferrer">' +
+        escapeHtml(tt('access.directions', '길찾기')) + '</a>';
     }
+
+    var sourceLabel = '';
+    if (item.source === 'naver') sourceLabel = tt('access.source.naver', '네이버');
+    else if (item.source === 'nearby') sourceLabel = tt('access.source.nearby', '주변검색');
+    else if (item.source === 'oasi5-curated') sourceLabel = 'Oasi5';
 
     return (
       '<li class="facility-recommend-row" data-index="' + index + '"' +
@@ -1097,9 +1121,9 @@ var DisabilityAccess = (function () {
           '</div>' +
           '<div class="facility-recommend-body">' +
             '<div class="facility-recommend-tags">' +
-              '<span class="hub-tag ' + tagClass + '">' + escapeHtml(item.kind) + '</span>' +
-              (item.source === 'nearby' || item.source === 'naver' || item.source === 'oasi5-curated'
-                ? '<span class="hub-tag hub-tag-traffic">' + (item.source === 'naver' ? '네이버' : (item.source === 'nearby' ? '주변검색' : 'Oasi5')) + '</span>'
+              '<span class="hub-tag ' + tagClass + '">' + escapeHtml(kindLabel(item.kind)) + '</span>' +
+              (sourceLabel
+                ? '<span class="hub-tag hub-tag-traffic">' + escapeHtml(sourceLabel) + '</span>'
                 : '') +
               (item.distanceKm != null
                 ? '<span class="facility-recommend-distance">' + escapeHtml(formatDistance(item.distanceKm)) + '</span>'
@@ -1107,7 +1131,7 @@ var DisabilityAccess = (function () {
             '</div>' +
             '<h3 class="facility-recommend-name">' + escapeHtml(item.name) + '</h3>' +
             '<p class="facility-recommend-audience">' +
-              '<span class="facility-recommend-audience-label">도움이 되는 분</span>' +
+              '<span class="facility-recommend-audience-label">' + escapeHtml(tt('access.audienceLabel', '도움이 되는 분')) + '</span>' +
               escapeHtml(item.audienceFor) +
             '</p>' +
             (item.address ? '<p class="facility-recommend-addr">' + escapeHtml(item.address) + '</p>' : '') +
@@ -1137,12 +1161,19 @@ var DisabilityAccess = (function () {
       if (!hasPoint && !state.resolvingDestination) return '';
       if (!items.length) {
         if (state.resolvingDestination || isNearbyLoading()) {
-          return '<section class="hub-section"><h2>' + escapeHtml(title) + '</h2><p class="hub-section-note access-loading-note">주변 관련 장소를 찾는 중…</p></section>';
+          return '<section class="hub-section"><h2>' + escapeHtml(title) + '</h2><p class="hub-section-note access-loading-note">' +
+            escapeHtml(tt('access.sectionLoading', '주변 관련 장소를 찾는 중…')) + '</p></section>';
         }
-        return '<section class="hub-section"><h2>' + escapeHtml(title) + '</h2><p class="hub-section-note">「' +
-          escapeHtml((point && point.name) || state.destination) + '」 근처 ' + escapeHtml(title) + ' 추천이 없습니다.</p></section>';
+        return '<section class="hub-section"><h2>' + escapeHtml(title) + '</h2><p class="hub-section-note">' +
+          escapeHtml(tt('access.sectionEmpty', {
+            place: (point && point.name) || state.destination,
+            category: title
+          })) + '</p></section>';
       }
-      var sectionNote = '「' + (point.name || state.destination) + '」 주변 · ' + note;
+      var sectionNote = tt('access.sectionHeader', {
+        place: point.name || state.destination,
+        note: note
+      });
       return (
         '<section class="hub-section">' +
           '<h2>' + escapeHtml(title) + '</h2>' +
@@ -1163,11 +1194,13 @@ var DisabilityAccess = (function () {
         '</div>' +
         renderDestinationPanel() +
         (!hasPoint && !state.resolvingDestination
-          ? '<section class="hub-section access-intro"><p class="hub-section-note">가고 싶은 장소를 입력하면 그 주변 카페·식당·쇼핑을 바로 추천합니다.</p></section>'
+          ? '<section class="hub-section access-intro"><p class="hub-section-note">' +
+              escapeHtml(tt('access.intro', '가고 싶은 장소를 입력하면 그 주변 카페·식당·쇼핑을 바로 추천합니다.')) +
+            '</p></section>'
           : '') +
-        section('카페', '접근이 비교적 쉬운 카페', cafes, 0) +
-        section('식당', '통로·엘리베이터가 있는 식당', food, cafes.length) +
-        section('가게·쇼핑', '마트·쇼핑몰 위주', shops, cafes.length + food.length) +
+        section(tt('access.cafe', '카페'), tt('access.cafeNote', '접근이 비교적 쉬운 카페'), cafes, 0) +
+        section(tt('access.food', '식당'), tt('access.foodNote', '통로·엘리베이터가 있는 식당'), food, cafes.length) +
+        section(tt('access.shop', '가게·쇼핑'), tt('access.shopNote', '마트·쇼핑몰 위주'), shops, cafes.length + food.length) +
       '</main>'
     );
   }
