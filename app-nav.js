@@ -276,6 +276,14 @@ var AppNav = (function () {
     });
   }
 
+  function refreshLanguage() {
+    if (typeof I18n !== 'undefined') I18n.apply();
+    updateHeader();
+    if (state.view === 'transit' && typeof TransitGuide !== 'undefined') TransitGuide.mount();
+    if (state.view === 'access' && typeof DisabilityAccess !== 'undefined') DisabilityAccess.mount();
+    if (state.view === 'articles' && typeof ArticlesHub !== 'undefined') ArticlesHub.mount();
+  }
+
   function init() {
     var backBtn = document.getElementById('nav-back');
     if (backBtn) {
@@ -314,6 +322,7 @@ var AppNav = (function () {
     goCity: goCity,
     goPlace: goPlace,
     back: back,
+    refreshLanguage: refreshLanguage,
     getState: function () { return state; }
   };
 })();

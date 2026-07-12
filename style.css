@@ -291,7 +291,8 @@ a.brand-lockup:active {
   color: var(--muted);
 }
 
-.theme-switch {
+.theme-switch,
+.lang-switch {
   display: inline-flex;
   padding: 3px;
   background: var(--surface-elevated);
@@ -301,7 +302,15 @@ a.brand-lockup:active {
   flex-shrink: 0;
 }
 
-.theme-switch-btn {
+.header-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.theme-switch-btn,
+.lang-switch-btn {
   padding: 6px 12px;
   border: none;
   border-radius: 999px;
@@ -315,17 +324,20 @@ a.brand-lockup:active {
   white-space: nowrap;
 }
 
-.theme-switch-btn:hover:not(.active) {
+.theme-switch-btn:hover:not(.active),
+.lang-switch-btn:hover:not(.active) {
   color: var(--text);
 }
 
-.theme-switch-btn.active {
+.theme-switch-btn.active,
+.lang-switch-btn.active {
   background: var(--green-light);
   color: var(--green);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
-.theme-switch-btn:focus-visible {
+.theme-switch-btn:focus-visible,
+.lang-switch-btn:focus-visible {
   outline: 2px solid var(--green);
   outline-offset: 2px;
 }
@@ -481,6 +493,7 @@ a,
 .city-btn,
 .header-nav-btn,
 .theme-switch-btn,
+.lang-switch-btn,
 .place-item,
 .hub-card-link,
 .disability-type-btn,

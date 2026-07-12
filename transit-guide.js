@@ -73,7 +73,15 @@ var TransitGuide = (function () {
     return '<span class="brand-wordmark">Oasi<span class="brand-five">5</span></span>';
   }
 
+  function tt(key, fallback) {
+    if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, fallback);
+    return fallback != null ? fallback : key;
+  }
+
   function modeLabel(id) {
+    var key = 'transit.mode.' + id;
+    var translated = tt(key, '');
+    if (translated && translated !== key) return translated;
     if (typeof NaverTransit !== 'undefined' && NaverTransit.MODES[id]) {
       return NaverTransit.MODES[id].label;
     }
@@ -83,11 +91,10 @@ var TransitGuide = (function () {
   function renderModeTabs(activeMode) {
     var modes = typeof NaverTransit !== 'undefined' ? NaverTransit.MODES : { transit: {}, walk: {}, car: {}, bicycle: {} };
     return Object.keys(modes).map(function (id) {
-      var mode = modes[id];
       var active = id === activeMode ? ' is-active' : '';
       return (
         '<button type="button" class="transit-map-mode' + active + '" data-mode="' + id + '">' +
-          escapeHtml(mode.label || id) +
+          escapeHtml(modeLabel(id)) +
         '</button>'
       );
     }).join('');
@@ -228,8 +235,8 @@ var TransitGuide = (function () {
         '<div class="transit-map-empty">' +
           '<div class="transit-map-empty-card">' +
             brandHtml() +
-            '<p class="transit-map-empty-title">Oasi5 길찾기</p>' +
-            '<p class="transit-map-empty-desc">대중교통·도보·자동차·자전거 경로를 Oasi5에서 바로 안내합니다. 출발지와 도착지를 입력해 주세요.</p>' +
+            '<p class="transit-map-empty-title">' + escapeHtml(tt('transit.emptyTitle', 'Oasi5 길찾기')) + '</p>' +
+            '<p class="transit-map-empty-desc">' + escapeHtml(tt('transit.emptyDesc', '대중교통·도보·자동차·자전거 경로를 Oasi5에서 바로 안내합니다. 출발지와 도착지를 입력해 주세요.')) + '</p>' +
           '</div>' +
         '</div>'
       );
@@ -245,11 +252,11 @@ var TransitGuide = (function () {
           escapeHtml(state.fromPoint.name) + ' → ' + escapeHtml(state.toPoint.name) +
           ' · ' + escapeHtml(modeLabel(state.mode)) +
           ' · ' + escapeHtml(profile.label) +
-          ' · <span class="transit-map-privacy">Oasi5 자체 경로</span>' +
+          ' · <span class="transit-map-privacy">' + escapeHtml(tt('transit.ownRoute', 'Oasi5 자체 경로')) + '</span>' +
         '</p>'
       );
     }
-    return '<p class="transit-map-hint">카카오맵 창이 아니라 Oasi5 길찾기로 안내합니다</p>';
+    return '<p class="transit-map-hint">' + escapeHtml(tt('transit.hint', '카카오맵 창이 아니라 Oasi5 길찾기로 안내합니다')) + '</p>';
   }
 
   function render() {
@@ -259,15 +266,15 @@ var TransitGuide = (function () {
         '<header class="transit-map-topbar">' +
           '<div class="transit-map-brand">' +
             brandHtml() +
-            '<span class="transit-map-brand-label">길찾기</span>' +
+            '<span class="transit-map-brand-label">' + escapeHtml(tt('transit.title', '길찾기')) + '</span>' +
           '</div>' +
           '<div class="transit-map-modes" id="transit-mode-tabs">' + renderModeTabs(state.mode) + '</div>' +
           '<form class="transit-map-form" id="transit-form" autocomplete="off">' +
-            '<input type="text" id="transit-from" name="from" class="transit-map-input" placeholder="출발지" value="' + escapeHtml(state.from) + '" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="출발지" />' +
-            '<button type="button" class="transit-map-swap" id="transit-swap" aria-label="출발지와 도착지 바꾸기">⇅</button>' +
-            '<input type="text" id="transit-to" name="to" class="transit-map-input" placeholder="도착지" value="' + escapeHtml(state.to) + '" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="도착지" />' +
+            '<input type="text" id="transit-from" name="from" class="transit-map-input" placeholder="' + escapeHtml(tt('transit.from', '출발지')) + '" value="' + escapeHtml(state.from) + '" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="' + escapeHtml(tt('transit.from', '출발지')) + '" />' +
+            '<button type="button" class="transit-map-swap" id="transit-swap" aria-label="' + escapeHtml(tt('transit.swap', '출발지와 도착지 바꾸기')) + '">⇅</button>' +
+            '<input type="text" id="transit-to" name="to" class="transit-map-input" placeholder="' + escapeHtml(tt('transit.to', '도착지')) + '" value="' + escapeHtml(state.to) + '" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="' + escapeHtml(tt('transit.to', '도착지')) + '" />' +
             '<button type="submit" class="transit-map-go"' + (state.loading ? ' disabled' : '') + '>' +
-              (state.loading ? '…' : '길찾기') +
+              (state.loading ? escapeHtml(tt('transit.loading', '…')) : escapeHtml(tt('transit.go', '길찾기'))) +
             '</button>' +
           '</form>' +
         '</header>' +

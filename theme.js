@@ -31,14 +31,28 @@
     } catch (e) {}
   }
 
+  function refreshLabels() {
+    document.querySelectorAll('.theme-switch-btn').forEach(function (btn) {
+      var theme = btn.getAttribute('data-theme');
+      if (theme === 'light') btn.textContent = (global.I18n && I18n.t('theme.light')) || '낮';
+      else if (theme === 'dark') btn.textContent = (global.I18n && I18n.t('theme.dark')) || '밤';
+    });
+    var group = document.getElementById('theme-switch');
+    if (group) {
+      group.setAttribute('aria-label', (global.I18n && I18n.t('theme.group')) || '테마 선택');
+    }
+  }
+
   function mountToggle(container) {
     if (!container || container.dataset.mounted) return;
     container.dataset.mounted = '1';
     container.setAttribute('role', 'group');
-    container.setAttribute('aria-label', '테마 선택');
+    container.setAttribute('aria-label', (global.I18n && I18n.t('theme.group')) || '테마 선택');
+    var light = (global.I18n && I18n.t('theme.light')) || '낮';
+    var dark = (global.I18n && I18n.t('theme.dark')) || '밤';
     container.innerHTML =
-      '<button type="button" class="theme-switch-btn" data-theme="light" aria-pressed="false">낮</button>' +
-      '<button type="button" class="theme-switch-btn" data-theme="dark" aria-pressed="false">밤</button>';
+      '<button type="button" class="theme-switch-btn" data-theme="light" aria-pressed="false">' + light + '</button>' +
+      '<button type="button" class="theme-switch-btn" data-theme="dark" aria-pressed="false">' + dark + '</button>';
 
     container.addEventListener('click', function (e) {
       var btn = e.target.closest('.theme-switch-btn');
@@ -66,6 +80,7 @@
   global.ThemeManager = {
     init: init,
     apply: apply,
-    get: getTheme
+    get: getTheme,
+    refreshLabels: refreshLabels
   };
 })(window);
