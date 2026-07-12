@@ -239,6 +239,80 @@ async function searchOdsay(sx, sy, ex, ey, fromName, toName, profile) {
   return { mode: 'transit', source: 'odsay', routes: routes };
 }
 
+function buildExternalLinks(sx, sy, ex, ey, fromName, toName) {
+  const fromLabel = encodeURIComponent(fromName || '출발');
+  const toLabel = encodeURIComponent(toName || '도착');
+  return {
+    naver:
+      'https://map.naver.com/p/directions/' +
+      sy + ',' + sx + ',' + fromLabel + '/' +
+      ey + ',' + ex + ',' + toLabel + '/-/transit',
+    kakao:
+      'https://map.kakao.com/?sX=' + sx + '&sY=' + sy + '&eX=' + ex + '&eY=' + ey +
+      '&sName=' + fromLabel + '&eName=' + toLabel + '&by=PUBLICTRANSIT',
+    google:
+      'https://www.google.com/maps/dir/?api=1&origin=' + sy + ',' + sx +
+      '&destination=' + ey + ',' + ex + '&travelmode=transit',
+  };
+}
+
+async function transitExternalFallback(sx, sy, ex, ey, fromName, toName) {
+  const links = buildExternalLinks(sx, sy, ex, ey, fromName, toName);
+  let walk = null;
+  try {
+    walk = await searchOsrm('walk', sx, sy, ex, ey, fromName, toName);
+  } catch (err) {
+    walk = null;
+  }
+
+  const routes = [];
+  routes.push({
+    id: 0,
+    summary: {
+      totalMinutes: null,
+      payment: null,
+      transfers: null,
+      walkMeters: 0,
+      walkMinutes: 0,
+      busCount: 0,
+      subwayCount: 0,
+      label: '대중교통 (외부 지도)',
+      firstStop: fromName,
+      lastStop: toName,
+    },
+    steps: [
+      {
+        type: 'walk',
+        duration: 0,
+        distance: 0,
+        from: fromName,
+        to: toName,
+        line: null,
+        instruction: '집·건물 주소 대중교통 경로는 네이버/카카오/구글 지도에서 바로 확인할 수 있습니다.',
+        notes: ['아래 링크로 정확한 버스·지하철 환승 경로를 확인하세요.'],
+      },
+    ],
+    polyline: [[sy, sx], [ey, ex]],
+    externalLinks: links,
+  });
+
+  if (walk && !walk.error && walk.routes && walk.routes[0]) {
+    const wr = walk.routes[0];
+    routes.push(Object.assign({}, wr, {
+      id: 1,
+      summary: Object.assign({}, wr.summary, { label: '도보 대안' }),
+    }));
+  }
+
+  return {
+    mode: 'transit',
+    source: 'external-fallback',
+    routes: routes,
+    links: links,
+    message: '대중교통 상세 경로는 외부 지도에서 확인하세요.',
+  };
+}
+
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') {
     setCors(res);
@@ -271,7 +345,14 @@ module.exports = async function handler(req, res) {
     if (mode === 'transit') {
       result = await searchOdsay(sx, sy, ex, ey, fromName, toName, profile);
       if (!result || result.error) {
-        result = await searchTransitNaver(sx, sy, ex, ey, fromName, toName);
+        try {
+          result = await searchTransitNaver(sx, sy, ex, ey, fromName, toName);
+        } catch (err) {
+          result = { error: true };
+        }
+      }
+      if (!result || result.error) {
+        result = await transitExternalFallback(sx, sy, ex, ey, fromName, toName);
       }
     } else if (mode === 'walk' || mode === 'car' || mode === 'bicycle') {
       result = await searchOsrm(mode, sx, sy, ex, ey, fromName, toName);
@@ -284,6 +365,12 @@ module.exports = async function handler(req, res) {
     }
     return sendJson(res, 200, result);
   } catch (err) {
+    try {
+      if (mode === 'transit') {
+        const fallback = await transitExternalFallback(sx, sy, ex, ey, fromName, toName);
+        return sendJson(res, 200, fallback);
+      }
+    } catch (ignore) {}
     return sendJson(res, 502, { error: true, message: '경로를 불러오지 못했습니다.' });
   }
 };

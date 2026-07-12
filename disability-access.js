@@ -12,6 +12,7 @@ var DisabilityAccess = (function () {
     nearbyError: false,
     nearbyPartialError: false,
     nearbyRemote: { cafe: [], food: [], shop: [] },
+    textHits: [],
     suggestRequestId: 0
   };
 
@@ -597,47 +598,98 @@ var DisabilityAccess = (function () {
     resolveDestinationFromInput();
   }
 
+  function normalizeSearch(text) {
+    return String(text || '').toLowerCase().replace(/\s+/g, '');
+  }
+
+  function searchFacilitiesByText(query) {
+    var q = normalizeSearch(query);
+    if (!q) return [];
+    return RECOMMENDATIONS.map(resolveEntry).filter(function (item) {
+      return normalizeSearch(item.name).indexOf(q) >= 0
+        || normalizeSearch(item.address).indexOf(q) >= 0
+        || normalizeSearch(item.kind).indexOf(q) >= 0
+        || normalizeSearch(item.photoQuery).indexOf(q) >= 0;
+    });
+  }
+
   function resolveDestinationFromInput() {
     var trimmed = state.destination.trim();
     if (!trimmed) {
       state.destinationPoint = null;
+      state.textHits = [];
       resetNearbyState();
       state.resolvingDestination = false;
       mount();
       return;
     }
+
+    // Instant text-related recommendations (do not wait for geocode/API).
+    state.textHits = searchFacilitiesByText(trimmed);
+    state.resolvingDestination = true;
+    mount();
+    scheduleFacilityPhotos();
+
     if (state.destinationPoint && state.destinationPoint.name === trimmed) {
+      state.resolvingDestination = false;
       refreshNearbyLists();
       return;
     }
 
-    state.resolvingDestination = true;
-    mount();
-
     var localPoint = null;
     if (typeof NaverTransit !== 'undefined') {
-      var local = NaverTransit.searchLocal(trimmed, 5);
-      var trimmedNorm = trimmed.replace(/\s+/g, '');
+      var local = NaverTransit.searchLocal(trimmed, 8);
+      var trimmedNorm = normalizeSearch(trimmed);
       localPoint = local.find(function (p) {
-        return p.lat && p.lng && String(p.name || '').replace(/\s+/g, '') === trimmedNorm;
+        return p.lat && p.lng && normalizeSearch(p.name) === trimmedNorm;
+      }) || local.find(function (p) {
+        return p.lat && p.lng && normalizeSearch(p.name).indexOf(trimmedNorm) >= 0;
       }) || null;
+    }
+
+    // If text hits have coordinates, use the first as an immediate destination center.
+    if (!localPoint && state.textHits.length && state.textHits[0].lat) {
+      localPoint = {
+        name: trimmed,
+        address: state.textHits[0].address || '',
+        lat: state.textHits[0].lat,
+        lng: state.textHits[0].lng,
+        source: 'text-hit'
+      };
     }
 
     function finishResolve(point) {
       state.resolvingDestination = false;
       if (point && point.lat && point.lng) {
         state.destinationPoint = point;
-        state.destination = point.name || trimmed;
         refreshNearbyLists();
         return;
       }
+      // Keep textHits visible even if geocode fails.
       state.destinationPoint = null;
       resetNearbyState();
       mount();
+      scheduleFacilityPhotos();
     }
 
     if (localPoint) {
       finishResolve(localPoint);
+      // Still refine with geocode in background when query looks like an address.
+      if (/[가-힣].*(로|길|동|아파트|번지)/.test(trimmed)) {
+        fetch(apiUrl('/api/geocode?q=' + encodeURIComponent(trimmed)))
+          .then(function (res) {
+            var ct = (res.headers.get('content-type') || '');
+            if (!res.ok || ct.indexOf('application/json') < 0) return null;
+            return res.json();
+          })
+          .then(function (data) {
+            if (data && data.point && data.point.lat) {
+              state.destinationPoint = Object.assign({}, data.point, { name: trimmed });
+              refreshNearbyLists();
+            }
+          })
+          .catch(function () {});
+      }
       return;
     }
 
@@ -645,11 +697,13 @@ var DisabilityAccess = (function () {
       .then(function (res) {
         var ct = (res.headers.get('content-type') || '');
         if (!res.ok || ct.indexOf('application/json') < 0) throw new Error('geocode-api');
-        return res.json().then(function (data) { return { ok: true, data: data }; });
+        return res.json();
       })
-      .then(function (result) {
-        if (result.data && result.data.point) {
-          finishResolve(result.data.point);
+      .then(function (data) {
+        if (data && data.point && data.point.lat) {
+          finishResolve(Object.assign({}, data.point, {
+            name: /[가-힣].*(로|길|동|아파트|번지)/.test(trimmed) ? trimmed : (data.point.name || trimmed)
+          }));
           return;
         }
         throw new Error('geocode-empty');
@@ -660,11 +714,10 @@ var DisabilityAccess = (function () {
             finishResolve(point);
             return;
           }
-          if (typeof NaverTransit === 'undefined') {
-            finishResolve(null);
-            return;
+          if (typeof NaverTransit !== 'undefined') {
+            return NaverTransit.resolvePoint(trimmed).then(finishResolve);
           }
-          return NaverTransit.resolvePoint(trimmed).then(finishResolve);
+          finishResolve(null);
         }).catch(function () { finishResolve(null); });
       });
   }
@@ -920,75 +973,21 @@ var DisabilityAccess = (function () {
   function geocodeClient(query) {
     var q = String(query || '').trim();
     if (!q) return Promise.resolve(null);
-
-    function stripDetail(text) {
-      return String(text || '')
-        .replace(/\s*\d+\s*동(\s*\d+\s*호)?/g, ' ')
-        .replace(/\s*\d+\s*호/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-    }
-
-    function fromPhoton(text) {
-      var url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(text) +
-        '&limit=5&lang=ko&lat=36.5&lon=127.8';
-      return fetch(url)
-        .then(function (res) { return res.json(); })
-        .then(function (data) {
-          var features = (data && data.features) || [];
-          for (var i = 0; i < features.length; i++) {
-            var f = features[i];
-            var coords = (f.geometry && f.geometry.coordinates) || [];
-            var lng = Number(coords[0]);
-            var lat = Number(coords[1]);
-            if (!(lat >= 33 && lat <= 39 && lng >= 124 && lng <= 132)) continue;
-            var p = f.properties || {};
-            return {
-              name: /[가-힣].*(로|길|동|아파트)/.test(q) ? q : (p.name || p.street || q),
-              address: [p.street, p.housenumber, p.district, p.city, p.state].filter(Boolean).join(' '),
-              lat: lat,
-              lng: lng,
-              source: 'photon'
-            };
-          }
-          return null;
-        })
-        .catch(function () { return null; });
-    }
-
-    function fromOpenMeteo(text) {
-      var url = 'https://geocoding-api.open-meteo.com/v1/search?name=' +
-        encodeURIComponent(text) + '&count=8&language=ko&format=json';
-      return fetch(url)
-        .then(function (res) { return res.json(); })
-        .then(function (data) {
-          var results = (data && data.results) ? data.results : [];
-          var korea = results.filter(function (r) {
-            return r.country_code === 'KR' ||
-              (r.latitude >= 33 && r.latitude <= 39 && r.longitude >= 124 && r.longitude <= 132);
-          });
-          var hit = korea[0] || results[0];
-          if (!hit) return null;
-          return {
-            name: /[가-힣].*(로|길|동|아파트)/.test(q) ? q : (hit.name || q),
-            address: [hit.admin3, hit.admin2, hit.admin1, hit.country].filter(Boolean).join(' '),
-            lat: hit.latitude,
-            lng: hit.longitude,
-            source: 'open-meteo'
-          };
-        })
-        .catch(function () { return null; });
-    }
-
-    var stripped = stripDetail(q);
-    return fromPhoton(q).then(function (point) {
-      if (point) return point;
-      if (stripped && stripped !== q) return fromPhoton(stripped);
-      return null;
-    }).then(function (point) {
-      if (point) return point;
-      return fromOpenMeteo(stripped || q);
-    });
+    // Prefer server geocode (Nominatim). Browser Nominatim often fails CORS.
+    return fetch(apiUrl('/api/geocode?q=' + encodeURIComponent(q)))
+      .then(function (res) {
+        var ct = (res.headers.get('content-type') || '');
+        if (!res.ok || ct.indexOf('application/json') < 0) throw new Error('geocode');
+        return res.json();
+      })
+      .then(function (data) {
+        if (!data || !data.point) return null;
+        if (/[가-힣].*(로|길|동|아파트|번지)/.test(q)) {
+          return Object.assign({}, data.point, { name: q });
+        }
+        return data.point;
+      })
+      .catch(function () { return null; });
   }
 
   function apiUrl(path) {
@@ -1026,10 +1025,34 @@ var DisabilityAccess = (function () {
     return KIND_CLASS[kind] || 'hub-tag-traffic';
   }
 
+  function latLngToTile(lat, lng, zoom) {
+    var n = Math.pow(2, zoom);
+    var x = Math.floor(((Number(lng) + 180) / 360) * n);
+    var latRad = Number(lat) * Math.PI / 180;
+    var y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+    return { z: zoom, x: x, y: y };
+  }
+
   function mapThumbUrl(lat, lng) {
     if (lat == null || lng == null || lat === '' || lng === '') return '';
-    return 'https://staticmap.openstreetmap.de/staticmap.php?center=' + lat + ',' + lng +
-      '&zoom=16&size=320x200&maptype=mapnik&markers=' + lat + ',' + lng + ',red-pushpin';
+    var t = latLngToTile(lat, lng, 16);
+    return 'https://a.basemaps.cartocdn.com/rastertiles/voyager/' + t.z + '/' + t.x + '/' + t.y + '@2x.png';
+  }
+
+  function placeholderThumb(name) {
+    var title = String(name || '장소').slice(0, 10);
+    var svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">' +
+      '<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">' +
+      '<stop stop-color="#d9efe6"/><stop offset="1" stop-color="#b7d8c8"/>' +
+      '</linearGradient></defs>' +
+      '<rect width="640" height="400" fill="url(#g)"/>' +
+      '<circle cx="320" cy="160" r="46" fill="#2f6f5e" opacity="0.9"/>' +
+      '<path d="M320 130c-16 0-28 12-28 28 0 22 28 48 28 48s28-26 28-48c0-16-12-28-28-28z" fill="#fff"/>' +
+      '<text x="320" y="280" text-anchor="middle" font-size="36" font-family="sans-serif" fill="#245346">' +
+      title.replace(/[<>&]/g, '') +
+      '</text></svg>';
+    return 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
   }
 
   function cleanImageUrl(url) {
@@ -1047,7 +1070,9 @@ var DisabilityAccess = (function () {
       var mapped = cleanImageUrl(FACILITY_IMAGES[name]);
       if (mapped && /^https?:\/\//i.test(mapped)) return mapped;
     }
-    return mapThumbUrl(lat, lng);
+    var map = mapThumbUrl(lat, lng);
+    if (map) return map;
+    return placeholderThumb(name);
   }
 
   function renderThumb(item) {
@@ -1125,82 +1150,63 @@ var DisabilityAccess = (function () {
   function render() {
     var resolved = RECOMMENDATIONS.map(resolveEntry);
     var point = state.destinationPoint;
-    var hasPoint = point && point.lat && point.lng;
-
+    var hasPoint = !!(point && point.lat && point.lng);
+    var hasTextHits = !!(state.textHits && state.textHits.length);
     var cafes = [];
     var food = [];
     var shops = [];
 
-    if (hasPoint) {
-      cafes = mergeCategory(
-        resolved.filter(function (r) { return r.kind === '카페'; }),
-        state.nearbyRemote.cafe,
-        point,
-        'cafe'
-      );
-      food = mergeCategory(
-        resolved.filter(function (r) { return r.kind === '식당'; }),
-        state.nearbyRemote.food,
-        point,
-        'food'
-      );
-      shops = mergeCategory(
-        resolved.filter(function (r) { return r.kind === '가게·쇼핑'; }),
-        state.nearbyRemote.shop,
-        point,
-        'shop'
-      );
+    if (hasTextHits) {
+      cafes = state.textHits.filter(function (r) { return r.kind === '카페'; });
+      food = state.textHits.filter(function (r) { return r.kind === '식당'; });
+      shops = state.textHits.filter(function (r) { return r.kind === '가게·쇼핑'; });
     }
 
-    function section(title, note, items, offset, kindKey) {
-      if (!hasPoint) {
-        return '';
-      }
-      if (state.nearbyError && !items.length) {
-        return (
-          '<section class="hub-section">' +
-            '<h2>' + escapeHtml(title) + '</h2>' +
-            '<p class="hub-section-note access-dest-status is-warning">주변 장소를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</p>' +
-          '</section>'
-        );
-      }
-      if (state.nearbyPartialError && !items.length && !state.loadingNearby[kindKey]) {
-        return (
-          '<section class="hub-section">' +
-            '<h2>' + escapeHtml(title) + '</h2>' +
-            '<p class="hub-section-note">「' + escapeHtml(point.name || state.destination) + '」 주변 ' +
-              NEARBY_RADIUS_KM + 'km 안에 표시할 장소가 없습니다. 다른 목적지를 입력해 보세요.</p>' +
-          '</section>'
-        );
-      }
-      if (state.loadingNearby[kindKey] && !items.length) {
-        return (
-          '<section class="hub-section">' +
-            '<h2>' + escapeHtml(title) + '</h2>' +
-            '<p class="hub-section-note access-loading-note">주변 ' + NEARBY_RADIUS_KM + 'km 이내 장소를 찾는 중…</p>' +
-          '</section>'
-        );
-      }
-      if (!items.length) {
-        if (point && point.lat) {
-          return (
-            '<section class="hub-section">' +
-              '<h2>' + escapeHtml(title) + '</h2>' +
-              '<p class="hub-section-note">「' + escapeHtml(point.name || state.destination) + '」 주변 ' +
-                NEARBY_RADIUS_KM + 'km 안에 해당 장소가 없습니다. 다른 목적지를 입력해 보세요.</p>' +
-            '</section>'
-          );
+    if (hasPoint) {
+      cafes = mergeCategory(resolved.filter(function (r) { return r.kind === '카페'; }), state.nearbyRemote.cafe, point, 'cafe');
+      food = mergeCategory(resolved.filter(function (r) { return r.kind === '식당'; }), state.nearbyRemote.food, point, 'food');
+      shops = mergeCategory(resolved.filter(function (r) { return r.kind === '가게·쇼핑'; }), state.nearbyRemote.shop, point, 'shop');
+      // Keep strong text matches at top if query still matches.
+      if (hasTextHits) {
+        var hitMap = { cafe: [], food: [], shop: [] };
+        state.textHits.forEach(function (hit) {
+          if (hit.kind === '카페') hitMap.cafe.push(hit);
+          else if (hit.kind === '식당') hitMap.food.push(hit);
+          else if (hit.kind === '가게·쇼핑') hitMap.shop.push(hit);
+        });
+        function prependHits(list, hits) {
+          var seen = {};
+          var out = [];
+          hits.concat(list).forEach(function (item) {
+            var key = (item.name || '') + '|' + item.lat + ',' + item.lng;
+            if (seen[key]) return;
+            seen[key] = true;
+            out.push(item);
+          });
+          return out.slice(0, NEARBY_LIMIT);
         }
-        return '';
+        cafes = prependHits(cafes, hitMap.cafe);
+        food = prependHits(food, hitMap.food);
+        shops = prependHits(shops, hitMap.shop);
       }
-      var sectionNote = note;
-      if (point && point.lat) {
-        sectionNote = '「' + (point.name || state.destination) + '」 주변 ' + NEARBY_RADIUS_KM + 'km · 가까운 순 · ' + note;
+    }
+
+    function section(title, note, items, offset) {
+      if (!hasPoint && !hasTextHits) return '';
+      if (!items.length) {
+        if (state.resolvingDestination) {
+          return '<section class="hub-section"><h2>' + escapeHtml(title) + '</h2><p class="hub-section-note access-loading-note">관련 장소를 찾는 중…</p></section>';
+        }
+        return '<section class="hub-section"><h2>' + escapeHtml(title) + '</h2><p class="hub-section-note">「' +
+          escapeHtml((point && point.name) || state.destination) + '」 관련 ' + escapeHtml(title) + ' 추천이 없습니다.</p></section>';
       }
+      var sectionNote = hasPoint
+        ? ('「' + (point.name || state.destination) + '」 주변 · ' + note)
+        : ('「' + state.destination + '」 검색 결과 · ' + note);
       return (
         '<section class="hub-section">' +
           '<h2>' + escapeHtml(title) + '</h2>' +
-          (sectionNote ? '<p class="hub-section-note">' + escapeHtml(sectionNote) + '</p>' : '') +
+          '<p class="hub-section-note">' + escapeHtml(sectionNote) + '</p>' +
           '<ul class="facility-recommend-list">' +
             items.map(function (item, i) { return renderRow(item, offset + i); }).join('') +
           '</ul>' +
@@ -1217,35 +1223,12 @@ var DisabilityAccess = (function () {
           '</h1>' +
         '</div>' +
         renderDestinationPanel() +
-        (!hasPoint
-          ? '<section class="hub-section access-intro">' +
-              '<p class="hub-section-note">목적지를 입력하면 <strong>예상 검색어</strong>에서 고르거나, <strong>검색 버튼(돋보기)</strong>으로 직접 검색할 수 있습니다. 주변 5km 안의 카페·식당·쇼핑 장소를 보여 드립니다.</p>' +
-            '</section>'
+        (!hasPoint && !hasTextHits
+          ? '<section class="hub-section access-intro"><p class="hub-section-note">목적지를 입력한 뒤 검색하면 관련 카페·식당·쇼핑 추천이 바로 표시됩니다.</p></section>'
           : '') +
-        section(
-          '카페',
-          '쇼핑몰·넓은 실내 위주로, 휠체어·유모차·보행 보조기로 비교적 이용하기 쉬운 카페입니다. (혼잡한 골목·시장 카페는 제외했습니다.)',
-          cafes,
-          0,
-          'cafe'
-        ) +
-        section(
-          '식당',
-          '전통시장·줄 서는 맛집 대신, 쇼핑몰·백화점 안처럼 통로가 넓고 엘리베이터가 있는 식당 위주입니다.',
-          food,
-          cafes.length,
-          'food'
-        ) +
-        section(
-          '가게·쇼핑',
-          '인파가 많은 야외 시장·번화가 거리 대신, 엘리베이터·경사로가 확실한 백화점·쇼핑몰 위주입니다.',
-          shops,
-          cafes.length + food.length,
-          'shop'
-        ) +
-        (state.nearbyPartialError && !isNearbyLoading()
-          ? '<p class="hub-section-note access-dest-status is-warning">일부 카테고리 장소를 불러오지 못했습니다. 표시된 결과만 참고해 주세요.</p>'
-          : '') +
+        section('카페', '접근이 비교적 쉬운 카페', cafes, 0) +
+        section('식당', '통로·엘리베이터가 있는 식당', food, cafes.length) +
+        section('가게·쇼핑', '백화점·쇼핑몰 위주', shops, cafes.length + food.length) +
       '</main>'
     );
   }
@@ -1261,16 +1244,25 @@ var DisabilityAccess = (function () {
   function loadPhotoForRow(row) {
     var img = row.querySelector('[data-facility-thumb]');
     if (!img) return;
+    var name = row.getAttribute('data-place-name') || '';
 
     function failSoft() {
       var lat = row.getAttribute('data-place-lat');
       var lng = row.getAttribute('data-place-lng');
-      var mapSrc = mapThumbUrl(lat, lng);
       var retries = parseInt(row.dataset.photoRetry || '0', 10);
-      if (mapSrc && retries < 1 && img.getAttribute('src') !== mapSrc) {
+      if (retries < 1) {
         row.dataset.photoRetry = '1';
+        var mapSrc = mapThumbUrl(lat, lng);
+        if (mapSrc && img.getAttribute('src') !== mapSrc) {
+          img.removeAttribute('hidden');
+          img.src = mapSrc;
+          return;
+        }
+      }
+      if (retries < 2) {
+        row.dataset.photoRetry = '2';
         img.removeAttribute('hidden');
-        img.src = mapSrc;
+        img.src = placeholderThumb(name);
         return;
       }
       var placeholder = row.querySelector('[data-facility-placeholder]');

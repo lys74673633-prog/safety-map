@@ -340,7 +340,15 @@ var TransitGuide = (function () {
               '</ul>'
             ) : '') +
             '<p class="transit-ext-link">' +
-              '<a href="' + escapeHtml(extLink) + '" target="_blank" rel="noopener noreferrer">외부 지도 앱에서 상세 확인</a>' +
+              (selected.externalLinks
+                ? (
+                  '<a class="facility-recommend-btn" href="' + escapeHtml(selected.externalLinks.naver) + '" target="_blank" rel="noopener noreferrer">네이버 대중교통</a> ' +
+                  '<a class="facility-recommend-btn" href="' + escapeHtml(selected.externalLinks.kakao) + '" target="_blank" rel="noopener noreferrer">카카오 대중교통</a> ' +
+                  '<a class="facility-recommend-btn secondary" href="' + escapeHtml(selected.externalLinks.google) + '" target="_blank" rel="noopener noreferrer">구글 대중교통</a>'
+                )
+                : (
+                  '<a href="' + escapeHtml(extLink) + '" target="_blank" rel="noopener noreferrer">외부 지도 앱에서 상세 확인</a>'
+                )) +
             '</p>' +
           '</div>' +
         '</div>' +

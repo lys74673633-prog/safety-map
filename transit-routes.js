@@ -140,6 +140,7 @@ var TransitRoutes = (function () {
   }
 
   function formatDuration(minutes) {
+    if (minutes == null || minutes === '' || isNaN(Number(minutes))) return '외부 지도';
     var m = Math.max(0, Math.round(minutes || 0));
     if (m < 60) return m + '분';
     var h = Math.floor(m / 60);

@@ -25,17 +25,11 @@ function nameFromTags(tags) {
 }
 
 function mapThumb(lat, lng) {
-  return (
-    'https://staticmap.openstreetmap.de/staticmap.php?center=' +
-    lat +
-    ',' +
-    lng +
-    '&zoom=16&size=320x200&maptype=mapnik&markers=' +
-    lat +
-    ',' +
-    lng +
-    ',red-pushpin'
-  );
+  const n = Math.pow(2, 16);
+  const x = Math.floor(((Number(lng) + 180) / 360) * n);
+  const latRad = Number(lat) * Math.PI / 180;
+  const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
+  return 'https://a.basemaps.cartocdn.com/rastertiles/voyager/16/' + x + '/' + y + '@2x.png';
 }
 
 async function fetchOverpass(lat, lng, radiusM) {
