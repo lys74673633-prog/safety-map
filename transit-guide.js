@@ -257,15 +257,7 @@ var TransitGuide = (function () {
 
   function renderMapPane() {
     if (!state.showResult) {
-      return (
-        '<div class="transit-map-empty">' +
-          '<div class="transit-map-empty-card">' +
-            brandHtml() +
-            '<p class="transit-map-empty-title">' + escapeHtml(tt('transit.emptyTitle', 'Oasi5 길찾기')) + '</p>' +
-            '<p class="transit-map-empty-desc">' + escapeHtml(tt('transit.emptyDesc', '대중교통·도보·자동차·자전거 경로를 Oasi5에서 바로 안내합니다. 출발지와 도착지를 입력해 주세요.')) + '</p>' +
-          '</div>' +
-        '</div>'
-      );
+      return '<div class="transit-map-empty" aria-hidden="true"></div>';
     }
     return renderNativeResult(getProfile(state.profileId));
   }
@@ -278,11 +270,10 @@ var TransitGuide = (function () {
           escapeHtml(state.fromPoint.name) + ' → ' + escapeHtml(state.toPoint.name) +
           ' · ' + escapeHtml(modeLabel(state.mode)) +
           ' · ' + escapeHtml(profileLabel(profile)) +
-          ' · <span class="transit-map-privacy">' + escapeHtml(tt('transit.ownRoute', 'Oasi5 자체 경로')) + '</span>' +
         '</p>'
       );
     }
-    return '<p class="transit-map-hint">' + escapeHtml(tt('transit.hint', '카카오맵 창이 아니라 Oasi5 길찾기로 안내합니다')) + '</p>';
+    return '';
   }
 
   function render() {
