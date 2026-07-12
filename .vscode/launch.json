@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Website",
+      "type": "chrome",
+      "request": "launch",
+      "url": "http://localhost:3456",
+      "webRoot": "${workspaceFolder}",
+      "preLaunchTask": "Run"
+    }
+  ]
+}

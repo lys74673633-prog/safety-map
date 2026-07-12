@@ -1,0 +1,5 @@
+odsay-config.local.json
+kric-config.local.json
+__pycache__/
+*.pyc
+_test_out.txt

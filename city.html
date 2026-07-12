@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>Oasi5</title>
+  <script>
+    var p = new URLSearchParams(location.search);
+    var region = p.get('region') || '';
+    var city = p.get('city') || '';
+    if (region && city) {
+      location.replace('index.html#/city/' + encodeURIComponent(region) + '/' + encodeURIComponent(city));
+    } else {
+      location.replace('index.html');
+    }
+  </script>
+</head>
+<body></body>
+</html>
