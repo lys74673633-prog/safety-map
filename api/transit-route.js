@@ -240,16 +240,25 @@ async function searchOdsay(sx, sy, ex, ey, fromName, toName, profile) {
 }
 
 function buildExternalLinks(sx, sy, ex, ey, fromName, toName) {
-  const fromLabel = encodeURIComponent(fromName || '출발');
-  const toLabel = encodeURIComponent(toName || '도착');
+  const fromLabel = String(fromName || '출발').replace(/[\/,]/g, ' ').trim() || '출발';
+  const toLabel = String(toName || '도착').replace(/[\/,]/g, ' ').trim() || '도착';
+  const fromEnc = encodeURIComponent(fromLabel);
+  const toEnc = encodeURIComponent(toLabel);
   return {
     naver:
       'https://map.naver.com/p/directions/' +
-      sy + ',' + sx + ',' + fromLabel + '/' +
-      ey + ',' + ex + ',' + toLabel + '/-/transit',
+      sy + ',' + sx + ',' + fromEnc + '/' +
+      ey + ',' + ex + ',' + toEnc + '/-/transit',
+    // Official Kakao Map link (WGS84). mode: traffic = 대중교통
     kakao:
-      'https://map.kakao.com/?sX=' + sx + '&sY=' + sy + '&eX=' + ex + '&eY=' + ey +
-      '&sName=' + fromLabel + '&eName=' + toLabel + '&by=PUBLICTRANSIT',
+      'https://map.kakao.com/link/by/traffic/' +
+      fromLabel + ',' + sy + ',' + sx + '/' +
+      toLabel + ',' + ey + ',' + ex,
+    kakaoScheme:
+      'https://map.kakao.com/scheme/route?sp=' + sy + ',' + sx +
+      '&ep=' + ey + ',' + ex + '&by=publictransit',
+    kakaoApp:
+      'kakaomap://route?sp=' + sy + ',' + sx + '&ep=' + ey + ',' + ex + '&by=publictransit',
     google:
       'https://www.google.com/maps/dir/?api=1&origin=' + sy + ',' + sx +
       '&destination=' + ey + ',' + ex + '&travelmode=transit',
@@ -288,8 +297,8 @@ async function transitExternalFallback(sx, sy, ex, ey, fromName, toName) {
         from: fromName,
         to: toName,
         line: null,
-        instruction: '집·건물 주소 대중교통 경로는 네이버/카카오/구글 지도에서 바로 확인할 수 있습니다.',
-        notes: ['아래 링크로 정확한 버스·지하철 환승 경로를 확인하세요.'],
+        instruction: '카카오맵 대중교통 길찾기로 버스·지하철 경로를 확인하세요.',
+        notes: ['아래 「카카오맵에서 길찾기」를 누르면 출발·도착 좌표가 맞게 열립니다.'],
       },
     ],
     polyline: [[sy, sx], [ey, ex]],

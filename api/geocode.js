@@ -44,7 +44,7 @@ function queryVariants(q) {
     }
   }
 
-  return unique(variants).slice(0, 8);
+  return unique(variants).slice(0, 4);
 }
 
 function toPoint(row, q, source) {
@@ -138,13 +138,9 @@ module.exports = async function handler(req, res) {
     for (const variant of variants) {
       point = await nominatimSearch(variant);
       if (point) break;
-      await new Promise(function (r) { setTimeout(r, 120); });
     }
     if (!point) {
-      for (const variant of variants.slice(0, 4)) {
-        point = await openMeteoSearch(variant);
-        if (point) break;
-      }
+      point = await openMeteoSearch(variants[0]);
     }
 
     if (!point) {

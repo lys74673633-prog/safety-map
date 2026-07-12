@@ -1,5 +1,8 @@
 const { sendJson, setCors } = require('./_http');
 
+const nearbyCache = new Map();
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
 function haversineKm(aLat, aLng, bLat, bLng) {
   const toRad = Math.PI / 180;
   const dLat = (bLat - aLat) * toRad;
@@ -25,28 +28,23 @@ function nameFromTags(tags) {
 }
 
 function mapThumb(lat, lng) {
-  const n = Math.pow(2, 16);
+  const n = Math.pow(2, 15);
   const x = Math.floor(((Number(lng) + 180) / 360) * n);
   const latRad = Number(lat) * Math.PI / 180;
   const y = Math.floor((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2 * n);
-  return 'https://a.basemaps.cartocdn.com/rastertiles/voyager/16/' + x + '/' + y + '@2x.png';
+  return 'https://a.basemaps.cartocdn.com/rastertiles/voyager/15/' + x + '/' + y + '@2x.png';
 }
 
 async function fetchOverpass(lat, lng, radiusM) {
-  // Keep the query small/fast for Vercel timeouts.
+  // Small, fast query — speed over completeness.
   const query =
-    '[out:json][timeout:6];(' +
+    '[out:json][timeout:4];(' +
     'node["amenity"="cafe"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
     'node["amenity"="restaurant"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
     'node["amenity"="fast_food"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
     'node["shop"~"mall|department_store|supermarket|convenience"](around:' +
-    radiusM +
-    ',' +
-    lat +
-    ',' +
-    lng +
-    ');' +
-    ');out body 30;';
+    radiusM + ',' + lat + ',' + lng + ');' +
+    ');out body 24;';
 
   const endpoints = [
     'https://overpass.kumi.systems/api/interpreter',
@@ -57,7 +55,7 @@ async function fetchOverpass(lat, lng, radiusM) {
   for (const endpoint of endpoints) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(function () { controller.abort(); }, 7000);
+      const timer = setTimeout(function () { controller.abort(); }, 4500);
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -128,13 +126,19 @@ module.exports = async function handler(req, res) {
     return sendJson(res, 400, { error: true, message: '한국 내 좌표만 지원합니다.' });
   }
 
-  const radius = Math.min(Math.max(Number(req.query.radius) || 5, 1), 8);
-  const limit = Math.min(Math.max(Number(req.query.limit) || 12, 5), 20);
+  const radius = Math.min(Math.max(Number(req.query.radius) || 3, 1), 5);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 4), 16);
+  const cacheKey = lat.toFixed(3) + ',' + lng.toFixed(3) + '|' + radius + '|' + limit;
+  const cached = nearbyCache.get(cacheKey);
+  if (cached && Date.now() - cached.t < CACHE_TTL_MS) {
+    return sendJson(res, 200, cached.data);
+  }
+
   const radiusM = Math.round(radius * 1000);
 
   try {
     const data = await fetchOverpass(lat, lng, radiusM);
-    return sendJson(res, 200, {
+    const payload = {
       lat: lat,
       lng: lng,
       radiusKm: radius,
@@ -142,7 +146,9 @@ module.exports = async function handler(req, res) {
       food: collectItems(data, lat, lng, 'food', radius, limit),
       shop: collectItems(data, lat, lng, 'shop', radius, limit),
       source: 'osm',
-    });
+    };
+    nearbyCache.set(cacheKey, { t: Date.now(), data: payload });
+    return sendJson(res, 200, payload);
   } catch (err) {
     return sendJson(res, 200, {
       lat: lat,
@@ -151,8 +157,8 @@ module.exports = async function handler(req, res) {
       cafe: [],
       food: [],
       shop: [],
-      source: 'curated-client',
-      warning: '주변 검색을 불러오지 못해 추천 목록만 표시합니다.',
+      source: 'empty',
+      warning: '주변 검색이 잠시 느려 결과를 비웠습니다. 다시 검색해 주세요.',
     });
   }
 };

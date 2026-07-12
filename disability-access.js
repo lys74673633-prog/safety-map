@@ -1,7 +1,7 @@
 var DisabilityAccess = (function () {
-  var NEARBY_RADIUS_KM = 5;
-  var NEARBY_MAX_KM = 15;
-  var NEARBY_LIMIT = 20;
+  var NEARBY_RADIUS_KM = 3;
+  var NEARBY_MAX_KM = 8;
+  var NEARBY_LIMIT = 12;
 
   var state = {
     destination: '',
@@ -732,7 +732,7 @@ var DisabilityAccess = (function () {
       + '&radius=' + NEARBY_RADIUS_KM
       + '&limit=' + NEARBY_LIMIT);
     return new Promise(function (resolve, reject) {
-      var timer = setTimeout(function () { reject(new Error('nearby-timeout')); }, 10000);
+      var timer = setTimeout(function () { reject(new Error('nearby-timeout')); }, 6500);
       fetch(url)
         .then(function (res) {
           clearTimeout(timer);
@@ -821,8 +821,8 @@ var DisabilityAccess = (function () {
 
   function remotePlaceToEntry(item, kindKey) {
     var kindMap = { cafe: '카페', food: '식당', shop: '가게·쇼핑' };
-    var image = item.image || '';
-    var photoUrl = photoImgUrl(item.name, item.address || '', item.lat, item.lng, image, '');
+    // Fast path: map tile first. Shop photos upgrade later in the background.
+    var image = item.image || mapThumbUrl(item.lat, item.lng) || '';
     return {
       kind: kindMap[kindKey] || '장소',
       name: item.name,
@@ -830,10 +830,11 @@ var DisabilityAccess = (function () {
       lat: item.lat,
       lng: item.lng,
       image: image,
-      photoUrl: photoUrl,
+      photoUrl: image,
       photoQuery: item.name,
       source: 'nearby',
       distanceKm: item.distanceKm,
+      upgradePhoto: true,
       audienceFor: '휠체어·유모차·보행 보조 — 주변 검색',
       note: '목적지에서 ' + formatDistance(item.distanceKm) + ' 거리입니다. 입장 전 계단·통로 여부를 확인하세요.'
     };
@@ -1052,25 +1053,23 @@ var DisabilityAccess = (function () {
 
   function photoImgUrl(name, address, lat, lng, directSrc, photoUrl) {
     var direct = cleanImageUrl(photoUrl) || cleanImageUrl(directSrc);
-    if (direct && /^https?:\/\//i.test(direct) && direct.indexOf('basemaps.cartocdn.com') < 0) {
-      return direct;
-    }
+    if (direct && /^https?:\/\//i.test(direct)) return direct;
     if (name && FACILITY_IMAGES[name]) {
       var mapped = cleanImageUrl(FACILITY_IMAGES[name]);
       if (mapped && /^https?:\/\//i.test(mapped)) return mapped;
     }
-    // Fetch Naver/Google-like shop thumbnails through our API proxy.
-    if (name) {
-      var params = ['name=' + encodeURIComponent(name)];
-      if (address) params.push('address=' + encodeURIComponent(address));
-      if (lat != null && lng != null && lat !== '' && lng !== '') {
-        params.push('lat=' + encodeURIComponent(lat));
-        params.push('lng=' + encodeURIComponent(lng));
-      }
-      if (direct && /^https?:\/\//i.test(direct)) params.push('src=' + encodeURIComponent(direct));
-      return apiUrl('/api/place-photo/img?' + params.join('&'));
-    }
     return mapThumbUrl(lat, lng) || placeholderThumb(name);
+  }
+
+  function shopPhotoProxyUrl(name, address, lat, lng) {
+    if (!name) return '';
+    var params = ['name=' + encodeURIComponent(name)];
+    if (address) params.push('address=' + encodeURIComponent(address));
+    if (lat != null && lng != null && lat !== '' && lng !== '') {
+      params.push('lat=' + encodeURIComponent(lat));
+      params.push('lng=' + encodeURIComponent(lng));
+    }
+    return apiUrl('/api/place-photo/img?' + params.join('&'));
   }
 
   function renderThumb(item) {
@@ -1114,6 +1113,7 @@ var DisabilityAccess = (function () {
         ' data-place-source="' + escapeHtml(item.source || '') + '"' +
         (item.image ? ' data-place-img="' + escapeHtml(item.image) + '"' : '') +
         (item.photoUrl ? ' data-photo-url="' + escapeHtml(item.photoUrl) + '"' : '') +
+        (item.upgradePhoto ? ' data-upgrade-photo="1"' : '') +
         (item.lat ? ' data-place-lat="' + item.lat + '"' : '') +
         (item.lng ? ' data-place-lng="' + item.lng + '"' : '') +
         '>' +
@@ -1224,47 +1224,46 @@ var DisabilityAccess = (function () {
     var address = row.getAttribute('data-place-address') || '';
     var lat = row.getAttribute('data-place-lat');
     var lng = row.getAttribute('data-place-lng');
-
-    function failSoft() {
-      var retries = parseInt(row.dataset.photoRetry || '0', 10);
-      if (retries < 1 && name) {
-        row.dataset.photoRetry = '1';
-        img.removeAttribute('hidden');
-        img.src = apiUrl('/api/place-photo/img?name=' + encodeURIComponent(name) +
-          (address ? '&address=' + encodeURIComponent(address) : '') +
-          (lat ? '&lat=' + encodeURIComponent(lat) : '') +
-          (lng ? '&lng=' + encodeURIComponent(lng) : ''));
-        return;
-      }
-      if (retries < 2) {
-        row.dataset.photoRetry = '2';
-        var mapSrc = mapThumbUrl(lat, lng);
-        if (mapSrc) {
-          img.removeAttribute('hidden');
-          img.src = mapSrc;
-          return;
-        }
-      }
-      row.dataset.photoRetry = '3';
-      img.removeAttribute('hidden');
-      img.src = placeholderThumb(name);
-    }
+    var upgrade = row.getAttribute('data-upgrade-photo') === '1';
 
     img.onload = function () { revealPhoto(row); };
-    img.onerror = failSoft;
+    img.onerror = function () {
+      var mapSrc = mapThumbUrl(lat, lng) || placeholderThumb(name);
+      if (img.src !== mapSrc) {
+        img.src = mapSrc;
+        return;
+      }
+      img.src = placeholderThumb(name);
+    };
 
     var initialSrc = img.getAttribute('src') || '';
     if (!initialSrc) {
-      failSoft();
-      return;
+      img.src = mapThumbUrl(lat, lng) || placeholderThumb(name);
     }
     if (img.complete && img.naturalWidth > 0) {
       revealPhoto(row);
     }
+
+    // Upgrade a few nearby rows to shop photos after first paint (slow Naver scrape).
+    if (upgrade && name && !row.dataset.photoUpgraded) {
+      row.dataset.photoUpgraded = '1';
+      setTimeout(function () {
+        var proxy = shopPhotoProxyUrl(name, address, lat, lng);
+        if (!proxy) return;
+        var probe = new Image();
+        probe.onload = function () {
+          img.src = proxy;
+          revealPhoto(row);
+        };
+        probe.src = proxy;
+      }, 800 + Math.floor(Math.random() * 1200));
+    }
   }
 
   function loadFacilityPhotos(container) {
-    container.querySelectorAll('.facility-recommend-row').forEach(loadPhotoForRow);
+    var rows = Array.prototype.slice.call(container.querySelectorAll('.facility-recommend-row'));
+    // Instant thumbs first; upgrades are staggered inside loadPhotoForRow.
+    rows.forEach(loadPhotoForRow);
   }
 
   function mergeSuggest(local, remote) {

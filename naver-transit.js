@@ -364,6 +364,35 @@ var NaverTransit = (function () {
     return 'https://map.naver.com/p/directions/' + sp + '/' + ep + '/-/' + mode.path;
   }
 
+  function sanitizeKakaoLabel(name) {
+    return String(name || '').replace(/[\/,]/g, ' ').replace(/\s+/g, ' ').trim() || '장소';
+  }
+
+  function buildKakaoRouteUrl(from, to, modeId) {
+    var byMap = { transit: 'traffic', walk: 'walk', car: 'car', bicycle: 'bicycle' };
+    var by = byMap[modeId] || 'traffic';
+    if (!from || !to || !from.lat || !to.lat) return 'https://map.kakao.com/';
+    return 'https://map.kakao.com/link/by/' + by + '/' +
+      sanitizeKakaoLabel(from.name) + ',' + from.lat + ',' + from.lng + '/' +
+      sanitizeKakaoLabel(to.name) + ',' + to.lat + ',' + to.lng;
+  }
+
+  function buildKakaoSchemeUrl(from, to, modeId) {
+    var byMap = { transit: 'publictransit', walk: 'foot', car: 'car', bicycle: 'bicycle' };
+    var by = byMap[modeId] || 'publictransit';
+    if (!from || !to || !from.lat || !to.lat) return 'https://map.kakao.com/';
+    return 'https://map.kakao.com/scheme/route?sp=' + from.lat + ',' + from.lng +
+      '&ep=' + to.lat + ',' + to.lng + '&by=' + by;
+  }
+
+  function buildKakaoAppUrl(from, to, modeId) {
+    var byMap = { transit: 'publictransit', walk: 'foot', car: 'car', bicycle: 'bicycle' };
+    var by = byMap[modeId] || 'publictransit';
+    if (!from || !to || !from.lat || !to.lat) return 'kakaomap://open';
+    return 'kakaomap://route?sp=' + from.lat + ',' + from.lng +
+      '&ep=' + to.lat + ',' + to.lng + '&by=' + by;
+  }
+
   function buildDirectionsAppUrl(from, to, modeId) {
     var mode = getMode(modeId);
     var params = [
@@ -408,6 +437,9 @@ var NaverTransit = (function () {
     looksLikeHomeQuery: looksLikeHomeQuery,
     buildDirectionsWebUrl: buildDirectionsWebUrl,
     buildDirectionsAppUrl: buildDirectionsAppUrl,
+    buildKakaoRouteUrl: buildKakaoRouteUrl,
+    buildKakaoSchemeUrl: buildKakaoSchemeUrl,
+    buildKakaoAppUrl: buildKakaoAppUrl,
     buildSearchUrl: buildSearchUrl,
     haversineKm: haversineKm,
     getProfileTips: getProfileTips,
