@@ -1827,6 +1827,7 @@
   background:
     radial-gradient(ellipse 70% 40% at 50% 0%, color-mix(in srgb, var(--green) 12%, transparent), transparent 65%),
     var(--bg);
+  -webkit-overflow-scrolling: touch;
 }
 
 .transit-native-pane .transit-result-layout {
@@ -1835,6 +1836,7 @@
   gap: 14px;
   height: 100%;
   min-height: 420px;
+  align-items: stretch;
 }
 
 .transit-native-pane .transit-map-wrap {
@@ -1854,11 +1856,79 @@
 .transit-native-pane .transit-detail-panel {
   overflow: auto;
   padding: 4px 2px 8px;
+  position: relative;
+  z-index: 2;
+  background: var(--bg);
 }
 
 @media (max-width: 900px) {
+  .transit-map-shell {
+    height: auto;
+    min-height: calc(100dvh - 72px);
+    overflow: visible;
+  }
+
+  .transit-native-pane {
+    overflow: visible;
+    padding: 10px 12px 28px;
+  }
+
   .transit-native-pane .transit-result-layout {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    height: auto;
+    min-height: 0;
+    gap: 12px;
+  }
+
+  /* 글(경로 안내) 먼저, 지도는 아래 고정 높이 — 지도가 글을 덮지 않음 */
+  .transit-native-pane .transit-detail-panel {
+    order: 1;
+    overflow: visible;
+    max-height: none;
+    padding: 12px;
+    border: 1px solid color-mix(in srgb, var(--green) 22%, var(--border));
+    border-radius: 14px;
+    background: var(--surface);
+  }
+
+  .transit-native-pane .transit-map-wrap {
+    order: 2;
+    flex: 0 0 auto;
+    width: 100%;
+    height: 210px;
+    min-height: 210px;
+    max-height: 36vh;
+    position: relative;
+    z-index: 1;
+  }
+
+  .transit-native-pane .transit-map {
+    height: 210px;
+    min-height: 210px;
+    max-height: 36vh;
+  }
+
+  .transit-map-subbar {
+    flex-wrap: wrap;
+    max-height: none;
+  }
+
+  .transit-map-profiles {
+    max-width: 100%;
+  }
+
+  .transit-route-cards {
+    display: flex;
+    overflow-x: auto;
+    gap: 8px;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .transit-route-card {
+    flex: 0 0 auto;
+    min-width: 140px;
   }
 }
 
@@ -1910,10 +1980,31 @@
 
   .transit-map-modes {
     order: 2;
+    width: 100%;
   }
 
   .transit-map-go {
     padding: 9px 12px;
+  }
+
+  .transit-map-brand-label {
+    display: none;
+  }
+
+  .transit-map-subbar {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .transit-map-chip {
+    padding: 5px 8px;
+    font-size: 0.68rem;
+  }
+
+  .transit-map-hint,
+  .transit-map-route {
+    width: 100%;
+    font-size: 0.72rem;
   }
 }
 

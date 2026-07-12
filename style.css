@@ -188,6 +188,18 @@ body {
   padding: 0;
 }
 
+@media (max-width: 900px) {
+  #view-transit.app-view-active {
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .header-nav-btn {
+    padding: 7px 10px;
+    font-size: 0.75rem;
+  }
+}
+
 .header-brand {
   display: flex;
   align-items: center;

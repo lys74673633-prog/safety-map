@@ -409,6 +409,9 @@ var TransitGuide = (function () {
     setTimeout(function () {
       if (mapInstance) mapInstance.invalidateSize();
     }, 80);
+    setTimeout(function () {
+      if (mapInstance) mapInstance.invalidateSize();
+    }, 320);
   }
 
   function bindEvents(container) {
