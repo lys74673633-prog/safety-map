@@ -5,17 +5,22 @@ var PlaceView = (function () {
     return varsOrFb != null ? varsOrFb : key;
   }
 
+  function pn(text) {
+    return (typeof PlaceI18n !== 'undefined' && PlaceI18n.t) ? PlaceI18n.t(text) : text;
+  }
+
   function renderPhotos(place, photos, isFacility, naverUrl, streetViewUrl) {
     var hero = document.getElementById('hero');
     var grid = document.getElementById('photo-grid');
     var loadingEl = document.getElementById('photo-loading');
     if (!hero || !grid) return;
     if (loadingEl) loadingEl.remove();
+    var displayName = pn(place.name);
 
     if (!photos.length) {
       var emptyHint = isFacility
-        ? tt('place.photoFailFacility', { name: place.name })
-        : tt('place.photoFailArea', { name: place.name });
+        ? tt('place.photoFailFacility', { name: displayName })
+        : tt('place.photoFailArea', { name: displayName });
 
       hero.className = 'hero hero-empty';
       hero.innerHTML =
@@ -39,7 +44,7 @@ var PlaceView = (function () {
     var heroPhoto = photos[0];
     hero.className = 'hero';
     hero.innerHTML =
-      '<img src="' + heroPhoto.url + '" alt="' + tt('place.photoAlt', { name: place.name }) + '" />' +
+      '<img src="' + heroPhoto.url + '" alt="' + tt('place.photoAlt', { name: displayName }) + '" />' +
       '<span class="hero-label">' + heroPhoto.caption + '</span>';
 
     grid.innerHTML = '';
@@ -47,7 +52,7 @@ var PlaceView = (function () {
       var fig = document.createElement('figure');
       fig.className = 'photo-card' + (index === 0 ? ' wide featured' : '');
       fig.innerHTML =
-        '<img src="' + photo.url + '" alt="' + tt('place.photoAltN', { name: place.name, n: index + 1 }) + '" loading="lazy" />' +
+        '<img src="' + photo.url + '" alt="' + tt('place.photoAltN', { name: displayName, n: index + 1 }) + '" loading="lazy" />' +
         '<figcaption>' + photo.caption + '</figcaption>';
       grid.appendChild(fig);
     });
@@ -71,6 +76,7 @@ var PlaceView = (function () {
     }
 
     var place = places[placeId];
+    var displayName = pn(place.name);
     var typeLabel = place.type === 'help' ? tt('place.typeHelp', '도움 시설') : tt('place.typeDanger', '위험 지역');
     var catLabel = typeof PlaceInfo !== 'undefined' && PlaceInfo.categoryLabel
       ? PlaceInfo.categoryLabel(place.category)
@@ -89,11 +95,11 @@ var PlaceView = (function () {
     var heroInner = '';
     if (preloaded && preloaded.length) {
       heroInner =
-        '<img src="' + preloaded[0].url + '" alt="' + tt('place.photoAlt', { name: place.name }) + '" />' +
+        '<img src="' + preloaded[0].url + '" alt="' + tt('place.photoAlt', { name: displayName }) + '" />' +
         '<span class="hero-label">' + preloaded[0].caption + '</span>';
     } else {
       heroInner =
-        (satUrl ? '<img src="' + satUrl + '" alt="' + tt('place.satelliteAlt', { name: place.name }) + '" class="hero-satellite" />' : '') +
+        (satUrl ? '<img src="' + satUrl + '" alt="' + tt('place.satelliteAlt', { name: displayName }) + '" class="hero-satellite" />' : '') +
         '<div class="hero-placeholder">' +
           '<p class="hero-status">' + tt('place.photoLoading', '시설·장소 사진 불러오는 중…') + '</p>' +
           '<p class="hero-sub">' + tt('place.photoLoadingSub', '아래 정보와 지도는 바로 볼 수 있습니다') + '</p>' +
@@ -108,9 +114,9 @@ var PlaceView = (function () {
         '<section class="place-head ' + (place.type === 'danger' ? 'danger-type' : 'help-type') + '">' +
           '<span class="tag ' + place.type + '">' + typeLabel + ' · ' + catLabel + '</span>' +
           (typeof PlaceScores !== 'undefined' ? PlaceScores.renderMeter(place) : '') +
-          '<h1>' + place.name + '</h1>' +
-          '<p class="address">' + place.address + '</p>' +
-          '<p class="desc">' + (place.summary || place.description) + '</p>' +
+          '<h1>' + displayName + '</h1>' +
+          '<p class="address">' + pn(place.address) + '</p>' +
+          '<p class="desc">' + pn(place.summary || place.description) + '</p>' +
           '<div class="meta-row">' +
             PlaceInfo.renderMetaChips(place) +
           '</div>' +
@@ -129,13 +135,13 @@ var PlaceView = (function () {
           '</section>' +
           '<section class="section">' +
             '<h2>' + tt('place.photosTitle', '시설·장소 사진') + '</h2>' +
-            '<p class="section-note">' + tt('place.photosNote', { name: place.name }) + '</p>' +
+            '<p class="section-note">' + tt('place.photosNote', { name: displayName }) + '</p>' +
             '<div class="photo-grid" id="photo-grid">' +
               (preloaded && preloaded.length
                 ? preloaded.map(function (photo, index) {
                     return (
                       '<figure class="photo-card' + (index === 0 ? ' wide featured' : '') + '">' +
-                        '<img src="' + photo.url + '" alt="' + tt('place.photoAltN', { name: place.name, n: index + 1 }) + '" loading="lazy" />' +
+                        '<img src="' + photo.url + '" alt="' + tt('place.photoAltN', { name: displayName, n: index + 1 }) + '" loading="lazy" />' +
                         '<figcaption>' + photo.caption + '</figcaption>' +
                       '</figure>'
                     );

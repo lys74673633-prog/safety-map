@@ -5,6 +5,10 @@ var CityView = (function () {
     return varsOrFb != null ? varsOrFb : key;
   }
 
+  function pn(text) {
+    return (typeof PlaceI18n !== 'undefined' && PlaceI18n.t) ? PlaceI18n.t(text) : text;
+  }
+
   function openPlace(region, city, placeId) {
     AppNav.goPlace(placeId, { region: region, city: city });
   }
@@ -28,13 +32,13 @@ var CityView = (function () {
       li.className = 'place-item city-place-item' + (place.type === 'danger' ? ' danger-item' : '');
       li.innerHTML =
         '<div class="place-item-top">' +
-          '<div class="name">' + place.name + '</div>' +
+          '<div class="name">' + pn(place.name) + '</div>' +
           (typeof PlaceScores !== 'undefined' ? PlaceScores.renderBadge(place, true) : '') +
         '</div>' +
         '<div class="cat">' +
           (typeof PlaceInfo !== 'undefined' && PlaceInfo.categoryLabel ? PlaceInfo.categoryLabel(place.category) : place.category) +
         '</div>' +
-        '<div class="preview">' + place.description + '</div>' +
+        '<div class="preview">' + pn(place.description) + '</div>' +
         '<div class="open-hint">' + tt('city.tapHint', '탭하면 상세 정보 보기 →') + '</div>';
       li.addEventListener('click', function () {
         openPlace(region, city, place.id);
@@ -43,7 +47,7 @@ var CityView = (function () {
     });
   }
 
-  function render(region, city, existingMap) {
+  function renderInner(region, city, existingMap) {
     var root = document.getElementById('view-city');
     if (!root) return null;
 
@@ -58,7 +62,7 @@ var CityView = (function () {
         '<div class="app-view-inner"><div class="error-msg"><p>' +
           tt('city.noPlaces', {
             region: (typeof regionDisplayName === 'function' ? regionDisplayName(region) : region),
-            city: city
+            city: pn(city)
           }) +
         '</p></div></div>';
       return null;
@@ -72,7 +76,7 @@ var CityView = (function () {
       '<div class="app-view-inner city-main">' +
         '<section class="city-hero">' +
           '<p class="city-breadcrumb">' + tt('city.breadcrumb', { region: (typeof regionDisplayName === 'function' ? regionDisplayName(region) : region) }) + '</p>' +
-          '<h1>' + city + '</h1>' +
+          '<h1>' + pn(city) + '</h1>' +
           '<p class="city-summary">' + tt('city.summary', '등록된 도움 시설과 위험 지역입니다. 항목을 누르면 상세 화면으로 이동합니다.') + '</p>' +
           '<div class="city-stats">' +
             '<span class="stat help-stat">' + tt('home.statHelp', '도움') + ' <strong>' + helpItems.length + '</strong></span>' +
@@ -127,7 +131,7 @@ var CityView = (function () {
           iconSize: [14, 14],
           iconAnchor: [7, 7]
         }),
-        title: place.name
+        title: pn(place.name)
       }).addTo(map).on('click', function () {
         openPlace(region, city, place.id);
       });
@@ -135,6 +139,10 @@ var CityView = (function () {
 
     setTimeout(function () { map.invalidateSize(); }, 120);
     return map;
+  }
+
+  function render(region, city, existingMap) {
+    return renderInner(region, city, existingMap);
   }
 
   return { render: render };

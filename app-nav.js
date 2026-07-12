@@ -125,16 +125,24 @@ var AppNav = (function () {
       backBtn.textContent = tt('nav.backHome', '← 지도 홈');
       document.title = tt('title.city', {
         region: (typeof regionDisplayName === 'function' ? regionDisplayName(state.region) : state.region),
-        city: state.city
+        city: (typeof PlaceI18n !== 'undefined' && PlaceI18n.t) ? PlaceI18n.t(state.city) : state.city
       });
     } else if (state.view === 'place') {
+      var place = typeof places !== 'undefined' ? places[state.placeId] : null;
+      var placeName = place
+        ? ((typeof PlaceI18n !== 'undefined' && PlaceI18n.t) ? PlaceI18n.t(place.name) : place.name)
+        : tt('place.unnamed', '장소');
+      document.title = tt('title.place', { name: placeName });
       if (state.back && state.back.region && state.back.city) {
-        backBtn.textContent = '← ' + state.back.region + ' ' + state.back.city;
+        var backCity = (typeof PlaceI18n !== 'undefined' && PlaceI18n.t)
+          ? PlaceI18n.t(state.back.city)
+          : state.back.city;
+        backBtn.textContent = '← ' +
+          (typeof regionDisplayName === 'function' ? regionDisplayName(state.back.region) : state.back.region) +
+          ' ' + backCity;
       } else {
         backBtn.textContent = tt('nav.backHome', '← 지도 홈');
       }
-      var place = typeof places !== 'undefined' ? places[state.placeId] : null;
-      document.title = tt('title.place', { name: place ? place.name : tt('place.unnamed', '장소') });
     }
   }
 
@@ -288,17 +296,27 @@ var AppNav = (function () {
   function refreshLanguage() {
     if (typeof I18n !== 'undefined') I18n.apply();
     updateHeader();
-    if (state.view === 'home') {
-      if (typeof window.onAppHomeShow === 'function') window.onAppHomeShow();
+
+    function remount() {
+      updateHeader();
+      if (state.view === 'home') {
+        if (typeof window.onAppHomeShow === 'function') window.onAppHomeShow();
+      }
+      if (state.view === 'transit' && typeof TransitGuide !== 'undefined') TransitGuide.mount();
+      if (state.view === 'access' && typeof DisabilityAccess !== 'undefined') DisabilityAccess.mount();
+      if (state.view === 'articles' && typeof ArticlesHub !== 'undefined') ArticlesHub.mount();
+      if (state.view === 'city' && typeof CityView !== 'undefined' && state.region && state.city) {
+        cityMapInstance = CityView.render(state.region, state.city, cityMapInstance);
+      }
+      if (state.view === 'place' && typeof PlaceView !== 'undefined' && state.placeId != null) {
+        placeMapInstance = PlaceView.render(state.placeId, state.region, state.city, placeMapInstance);
+      }
     }
-    if (state.view === 'transit' && typeof TransitGuide !== 'undefined') TransitGuide.mount();
-    if (state.view === 'access' && typeof DisabilityAccess !== 'undefined') DisabilityAccess.mount();
-    if (state.view === 'articles' && typeof ArticlesHub !== 'undefined') ArticlesHub.mount();
-    if (state.view === 'city' && typeof CityView !== 'undefined' && state.region && state.city) {
-      cityMapInstance = CityView.render(state.region, state.city, cityMapInstance);
-    }
-    if (state.view === 'place' && typeof PlaceView !== 'undefined' && state.placeId != null) {
-      placeMapInstance = PlaceView.render(state.placeId, state.region, state.city, placeMapInstance);
+
+    if (typeof PlaceI18n !== 'undefined' && PlaceI18n.prepareAnd) {
+      PlaceI18n.prepareAnd(remount);
+    } else {
+      remount();
     }
   }
 

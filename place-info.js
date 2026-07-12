@@ -240,7 +240,8 @@
 
   function renderCanDoList(items) {
     return items.map(function (item) {
-      return '<li>' + item + '</li>';
+      var text = (typeof PlaceI18n !== 'undefined' && PlaceI18n.t) ? PlaceI18n.t(item) : item;
+      return '<li>' + text + '</li>';
     }).join('');
   }
 
@@ -287,7 +288,8 @@
 
     var howBlock = place.howToUse.length
       ? '<ol class="howto-list">' + place.howToUse.map(function (s) {
-          return '<li>' + s + '</li>';
+          var text = (typeof PlaceI18n !== 'undefined' && PlaceI18n.t) ? PlaceI18n.t(s) : s;
+          return '<li>' + text + '</li>';
         }).join('') + '</ol>'
       : '';
 
@@ -324,7 +326,7 @@
         '</section>' +
         '<section class="' + whyClass + '">' +
           '<h2>' + whyTitle + '</h2>' +
-          '<p>' + place.whyImportant + '</p>' +
+          '<p>' + ((typeof PlaceI18n !== 'undefined' && PlaceI18n.t) ? PlaceI18n.t(place.whyImportant) : place.whyImportant) + '</p>' +
         '</section>' +
       '</div>'
     );
@@ -342,7 +344,7 @@
         '<p class="detail-subhead">' + tt('place.canDoShort', '할 수 있는 것') + '</p>' +
         '<ul class="info-list compact">' + renderCanDoList(place.canDo.slice(0, 3)) + '</ul>' +
         '<p class="detail-subhead">' + whyTitle + '</p>' +
-        '<p class="detail-why">' + place.whyImportant + '</p>' +
+        '<p class="detail-why">' + ((typeof PlaceI18n !== 'undefined' && PlaceI18n.t) ? PlaceI18n.t(place.whyImportant) : place.whyImportant) + '</p>' +
       '</div>'
     );
   }

@@ -1129,13 +1129,13 @@ var DisabilityAccess = (function () {
                 ? '<span class="facility-recommend-distance">' + escapeHtml(formatDistance(item.distanceKm)) + '</span>'
                 : '') +
             '</div>' +
-            '<h3 class="facility-recommend-name">' + escapeHtml(item.name) + '</h3>' +
+            '<h3 class="facility-recommend-name">' + escapeHtml(typeof PlaceI18n !== 'undefined' && PlaceI18n.t ? PlaceI18n.t(item.name) : item.name) + '</h3>' +
             '<p class="facility-recommend-audience">' +
               '<span class="facility-recommend-audience-label">' + escapeHtml(tt('access.audienceLabel', '도움이 되는 분')) + '</span>' +
-              escapeHtml(item.audienceFor) +
+              escapeHtml(typeof PlaceI18n !== 'undefined' && PlaceI18n.t ? PlaceI18n.t(item.audienceFor) : item.audienceFor) +
             '</p>' +
-            (item.address ? '<p class="facility-recommend-addr">' + escapeHtml(item.address) + '</p>' : '') +
-            (item.note ? '<p class="facility-recommend-note">' + escapeHtml(item.note) + '</p>' : '') +
+            (item.address ? '<p class="facility-recommend-addr">' + escapeHtml(typeof PlaceI18n !== 'undefined' && PlaceI18n.t ? PlaceI18n.t(item.address) : item.address) + '</p>' : '') +
+            (item.note ? '<p class="facility-recommend-note">' + escapeHtml(typeof PlaceI18n !== 'undefined' && PlaceI18n.t ? PlaceI18n.t(item.note) : item.note) + '</p>' : '') +
             (actions ? '<div class="facility-recommend-actions">' + actions + '</div>' : '') +
           '</div>' +
         '</article>' +
@@ -1375,5 +1375,16 @@ var DisabilityAccess = (function () {
     if (!isNearbyLoading()) scheduleFacilityPhotos();
   }
 
-  return { render: render, mount: mount, RECOMMENDATIONS: RECOMMENDATIONS };
+  return {
+    render: render,
+    mount: mount,
+    RECOMMENDATIONS: RECOMMENDATIONS,
+    getNameTexts: function () {
+      return RECOMMENDATIONS.map(function (r) {
+        return [r.name, r.address, r.audienceFor, r.note];
+      }).reduce(function (acc, row) {
+        return acc.concat(row.filter(Boolean));
+      }, []);
+    }
+  };
 })();

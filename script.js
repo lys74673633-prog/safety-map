@@ -96,7 +96,7 @@ function createIcon(type, active) {
 places.forEach(function (place) {
   var marker = L.marker([place.lat, place.lng], {
     icon: createIcon(place.type, false),
-    title: place.name
+    title: pn(place.name)
   }).addTo(map);
 
   marker.on('click', function (e) {
@@ -174,7 +174,7 @@ function renderCityBar() {
     btn.type = 'button';
     btn.className = 'city-btn';
     btn.innerHTML =
-      city.label +
+      pn(city.label) +
       '<span class="city-btn-count">' + tt('home.cityCount', { help: city.help, danger: city.danger }) + '</span>';
     btn.addEventListener('click', function () {
       RegionData.openCityPage(currentRegion, city.name);
@@ -202,6 +202,10 @@ function selectRegion(name, fly) {
   }
 }
 
+function pn(text) {
+  return (typeof PlaceI18n !== 'undefined' && PlaceI18n.t) ? PlaceI18n.t(text) : text;
+}
+
 function selectPlace(id) {
   selectedIndex = id;
   var place = places[id];
@@ -218,9 +222,9 @@ function selectPlace(id) {
     '<span class="tag ' + place.type + '">' + (place.type === 'help' ? tt('place.typeHelp', '도움 시설') : tt('place.typeDanger', '위험 지역')) + ' · ' +
       (typeof PlaceInfo !== 'undefined' && PlaceInfo.categoryLabel ? PlaceInfo.categoryLabel(place.category) : place.category) + '</span>' +
     (typeof PlaceScores !== 'undefined' ? PlaceScores.renderBadge(place) : '') +
-    '<h4>' + place.name + '</h4>' +
-    '<p class="address">' + place.address + '</p>' +
-    '<p class="desc">' + place.description + '</p>' +
+    '<h4>' + pn(place.name) + '</h4>' +
+    '<p class="address">' + pn(place.address) + '</p>' +
+    '<p class="desc">' + pn(place.description) + '</p>' +
     PlaceInfo.renderInfoSectionsCompact(place) +
     '<button type="button" class="detail-link detail-link-btn">' + tt('home.viewDetail', '사진·전체 상세 보기 →') + '</button>';
   card.classList.remove('hidden');
@@ -254,13 +258,13 @@ function renderList(containerId, items, type) {
     li.dataset.id = place.id;
     li.innerHTML =
       '<div class="place-item-top">' +
-        '<div class="name">' + place.name + '</div>' +
+        '<div class="name">' + pn(place.name) + '</div>' +
         (typeof PlaceScores !== 'undefined' ? PlaceScores.renderBadge(place, true) : '') +
       '</div>' +
       '<div class="cat">' +
         (typeof PlaceInfo !== 'undefined' && PlaceInfo.categoryLabel ? PlaceInfo.categoryLabel(place.category) : place.category) +
       '</div>' +
-      '<div class="preview">' + place.description + '</div>' +
+      '<div class="preview">' + pn(place.description) + '</div>' +
       '<div class="open-hint">' + tt('home.tapHint', '탭하면 상세 화면으로 이동 →') + '</div>';
     li.addEventListener('click', function () {
       RegionData.openPlacePage(place.id, { region: place.region, city: place.city });
@@ -321,10 +325,17 @@ if (typeof GrowthChart !== 'undefined') {
 }
 
 window.onAppHomeShow = function () {
-  buildRegionBar();
-  renderCityBar();
-  renderPanel();
-  setTimeout(function () {
-    map.invalidateSize();
-  }, 120);
+  function refreshHome() {
+    buildRegionBar();
+    renderCityBar();
+    renderPanel();
+    setTimeout(function () {
+      map.invalidateSize();
+    }, 120);
+  }
+  if (typeof PlaceI18n !== 'undefined' && PlaceI18n.prepareAnd) {
+    PlaceI18n.prepareAnd(refreshHome);
+  } else {
+    refreshHome();
+  }
 };
