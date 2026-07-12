@@ -748,17 +748,20 @@ var DisabilityAccess = (function () {
           shop: (data && data.shop) ? data.shop : []
         };
         state.loadingNearby = { cafe: false, food: false, shop: false };
-        state.nearbyError = !state.nearbyRemote.cafe.length
+        state.nearbyError = false;
+        state.nearbyPartialError = !state.nearbyRemote.cafe.length
           && !state.nearbyRemote.food.length && !state.nearbyRemote.shop.length;
-        state.nearbyPartialError = false;
         mount();
         scheduleFacilityPhotos();
       })
       .catch(function () {
         state.nearbyRemote = { cafe: [], food: [], shop: [] };
         state.loadingNearby = { cafe: false, food: false, shop: false };
-        state.nearbyError = true;
+        // Keep curated nearby lists when the remote API is unavailable (e.g. cold start / scrape block).
+        state.nearbyError = false;
+        state.nearbyPartialError = true;
         mount();
+        scheduleFacilityPhotos();
       });
   }
 
@@ -1053,11 +1056,20 @@ var DisabilityAccess = (function () {
       if (!hasPoint) {
         return '';
       }
-      if (state.nearbyError) {
+      if (state.nearbyError && !items.length) {
         return (
           '<section class="hub-section">' +
             '<h2>' + escapeHtml(title) + '</h2>' +
-            '<p class="hub-section-note access-dest-status is-warning">주변 장소를 불러오지 못했습니다. py api/serve.py 로 서버를 실행한 뒤 다시 시도해 주세요.</p>' +
+            '<p class="hub-section-note access-dest-status is-warning">주변 장소를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.</p>' +
+          '</section>'
+        );
+      }
+      if (state.nearbyPartialError && !items.length && !state.loadingNearby[kindKey]) {
+        return (
+          '<section class="hub-section">' +
+            '<h2>' + escapeHtml(title) + '</h2>' +
+            '<p class="hub-section-note">「' + escapeHtml(point.name || state.destination) + '」 주변 ' +
+              NEARBY_RADIUS_KM + 'km 안에 표시할 장소가 없습니다. 다른 목적지를 입력해 보세요.</p>' +
           '</section>'
         );
       }
