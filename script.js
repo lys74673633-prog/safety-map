@@ -140,9 +140,11 @@ function tt(key, varsOrFb, maybeVars) {
 
 function regionDisplayName(name) {
   if (!name) return '';
-  var key = 'region.' + name;
-  var translated = tt(key, name);
-  if (translated && translated !== key) return translated;
+  if (typeof I18n !== 'undefined' && I18n.t) {
+    var key = 'region.' + name;
+    var translated = I18n.t(key);
+    if (translated && translated !== key) return translated;
+  }
   if (name === '전국') return tt('home.nation', '전국');
   return name;
 }
@@ -325,17 +327,10 @@ if (typeof GrowthChart !== 'undefined') {
 }
 
 window.onAppHomeShow = function () {
-  function refreshHome() {
-    buildRegionBar();
-    renderCityBar();
-    renderPanel();
-    setTimeout(function () {
-      map.invalidateSize();
-    }, 120);
-  }
-  if (typeof PlaceI18n !== 'undefined' && PlaceI18n.prepareAnd) {
-    PlaceI18n.prepareAnd(refreshHome);
-  } else {
-    refreshHome();
-  }
+  buildRegionBar();
+  renderCityBar();
+  renderPanel();
+  setTimeout(function () {
+    if (map && map.invalidateSize) map.invalidateSize();
+  }, 120);
 };

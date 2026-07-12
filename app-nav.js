@@ -295,12 +295,16 @@ var AppNav = (function () {
 
   function refreshLanguage() {
     if (typeof I18n !== 'undefined') I18n.apply();
-    updateHeader();
 
     function remount() {
       updateHeader();
       if (state.view === 'home') {
-        if (typeof window.onAppHomeShow === 'function') window.onAppHomeShow();
+        if (typeof buildRegionBar === 'function') buildRegionBar();
+        if (typeof renderCityBar === 'function') renderCityBar();
+        if (typeof renderPanel === 'function') renderPanel();
+        if (map && map.invalidateSize) {
+          setTimeout(function () { map.invalidateSize(); }, 120);
+        }
       }
       if (state.view === 'transit' && typeof TransitGuide !== 'undefined') TransitGuide.mount();
       if (state.view === 'access' && typeof DisabilityAccess !== 'undefined') DisabilityAccess.mount();
