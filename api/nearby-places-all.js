@@ -35,7 +35,7 @@ function mapThumb(lat, lng) {
 async function fetchOverpass(lat, lng, radiusM) {
   // Keep the query small/fast for Vercel timeouts.
   const query =
-    '[out:json][timeout:8];(' +
+    '[out:json][timeout:6];(' +
     'node["amenity"="cafe"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
     'node["amenity"="restaurant"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
     'node["amenity"="fast_food"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
@@ -46,7 +46,7 @@ async function fetchOverpass(lat, lng, radiusM) {
     ',' +
     lng +
     ');' +
-    ');out body 40;';
+    ');out body 30;';
 
   const endpoints = [
     'https://overpass.kumi.systems/api/interpreter',
@@ -57,7 +57,7 @@ async function fetchOverpass(lat, lng, radiusM) {
   for (const endpoint of endpoints) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(function () { controller.abort(); }, 9000);
+      const timer = setTimeout(function () { controller.abort(); }, 7000);
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: {

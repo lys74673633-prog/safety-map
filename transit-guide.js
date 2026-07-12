@@ -52,7 +52,11 @@ var TransitGuide = (function () {
     routes: [],
     selectedRouteIndex: 0,
     routeMeta: null,
-    mobilityStations: []
+    mobilityStations: [],
+    fromBusStops: [],
+    toBusStops: [],
+    fromBusStop: null,
+    toBusStop: null
   };
 
   var mapInstance = null;
@@ -187,13 +191,13 @@ var TransitGuide = (function () {
           '<div class="transit-route-inputs">' +
             '<div class="transit-route-row transit-field-suggest">' +
               '<span class="transit-route-dot transit-route-dot-from" aria-hidden="true"></span>' +
-              '<input type="text" id="transit-from" name="from" class="transit-input transit-route-input" placeholder="출발지" value="' + escapeHtml(state.from) + '" autocomplete="off" aria-label="출발지" />' +
+              '<input type="text" id="transit-from" name="from" class="transit-input transit-route-input" placeholder="출발 · 예: 해운대 경동아파트" value="' + escapeHtml(state.from) + '" autocomplete="off" aria-label="출발지" />' +
               '<div id="transit-from-suggest">' + renderSuggestions(state.suggestFrom, 'from') + '</div>' +
             '</div>' +
             '<button type="button" class="transit-swap-btn" id="transit-swap" aria-label="출발지와 도착지 바꾸기">⇅</button>' +
             '<div class="transit-route-row transit-field-suggest">' +
               '<span class="transit-route-dot transit-route-dot-to" aria-hidden="true"></span>' +
-              '<input type="text" id="transit-to" name="to" class="transit-input transit-route-input" placeholder="도착지" value="' + escapeHtml(state.to) + '" autocomplete="off" aria-label="도착지" />' +
+              '<input type="text" id="transit-to" name="to" class="transit-input transit-route-input" placeholder="도착 · 예: 센텀시티 벡스코" value="' + escapeHtml(state.to) + '" autocomplete="off" aria-label="도착지" />' +
               '<div id="transit-to-suggest">' + renderSuggestions(state.suggestTo, 'to') + '</div>' +
             '</div>' +
           '</div>' +
@@ -284,6 +288,100 @@ var TransitGuide = (function () {
     );
   }
 
+  function formatBusStopDistance(stop) {
+    if (!stop) return '';
+    if (stop.distanceM != null) return stop.distanceM + 'm';
+    if (stop.distanceKm != null) return Math.round(stop.distanceKm * 1000) + 'm';
+    return '';
+  }
+
+  function renderBusStopPanel() {
+    var fromStops = state.fromBusStops || [];
+    var toStops = state.toBusStops || [];
+    if (!fromStops.length && !toStops.length) return '';
+
+    function list(title, stops, selected) {
+      if (!stops.length) return '';
+      return (
+        '<div class="transit-bus-col">' +
+          '<h3 class="transit-bus-title">' + escapeHtml(title) + '</h3>' +
+          '<ul class="transit-bus-list">' +
+            stops.slice(0, 4).map(function (stop) {
+              var active = selected && selected.name === stop.name && selected.lat === stop.lat ? ' is-active' : '';
+              var dist = formatBusStopDistance(stop);
+              return (
+                '<li class="transit-bus-item' + active + '">' +
+                  '<strong>' + escapeHtml(stop.name) + '</strong>' +
+                  (dist ? '<span>' + escapeHtml(dist) + '</span>' : '') +
+                '</li>'
+              );
+            }).join('') +
+          '</ul>' +
+        '</div>'
+      );
+    }
+
+    return (
+      '<div class="transit-bus-panel">' +
+        '<p class="transit-bus-lead">지역명·아파트 기준으로 가까운 버스정류장을 맞춰 경로를 추천합니다.</p>' +
+        '<div class="transit-bus-grid">' +
+          list('출발 근처 정류장', fromStops, state.fromBusStop) +
+          list('도착 근처 정류장', toStops, state.toBusStop) +
+        '</div>' +
+      '</div>'
+    );
+  }
+
+  function annotateRouteWithBusStops(route, fromPoint, toPoint, fromStop, toStop) {
+    if (!route) return route;
+    var steps = (route.steps || []).slice();
+    var notes = [];
+
+    if (fromStop) {
+      var walkFrom = typeof NaverTransit !== 'undefined'
+        ? NaverTransit.haversineKm(fromPoint, fromStop)
+        : null;
+      var walkFromM = walkFrom != null ? Math.round(walkFrom * 1000) : null;
+      steps.unshift({
+        type: 'walk',
+        duration: walkFromM != null ? Math.max(1, Math.round(walkFromM / 70)) : 3,
+        distance: walkFromM || 0,
+        from: fromPoint.name,
+        to: fromStop.name,
+        line: null,
+        instruction: '「' + fromPoint.name + '」에서 가까운 「' + fromStop.name + '」 정류장까지 이동',
+        notes: walkFromM != null ? ['약 ' + walkFromM + 'm · 아파트·단지 입구 기준으로 안내합니다.'] : []
+      });
+      notes.push('출발 정류장: ' + fromStop.name);
+    }
+    if (toStop) {
+      var walkTo = typeof NaverTransit !== 'undefined'
+        ? NaverTransit.haversineKm(toStop, toPoint)
+        : null;
+      var walkToM = walkTo != null ? Math.round(walkTo * 1000) : null;
+      steps.push({
+        type: 'walk',
+        duration: walkToM != null ? Math.max(1, Math.round(walkToM / 70)) : 3,
+        distance: walkToM || 0,
+        from: toStop.name,
+        to: toPoint.name,
+        line: null,
+        instruction: '「' + toStop.name + '」에서 「' + toPoint.name + '」까지 이동',
+        notes: walkToM != null ? ['약 ' + walkToM + 'm'] : []
+      });
+      notes.push('하차 정류장: ' + toStop.name);
+    }
+
+    var summary = Object.assign({}, route.summary || {});
+    if (fromStop || toStop) {
+      summary.label = (summary.label || '대중교통') + ' · 정류장 맞춤';
+      summary.firstStop = fromStop ? fromStop.name : summary.firstStop;
+      summary.lastStop = toStop ? toStop.name : summary.lastStop;
+    }
+
+    return Object.assign({}, route, { steps: steps, summary: summary, busHints: notes });
+  }
+
   function renderRouteResult(profile, fromPoint, toPoint) {
     if (!fromPoint || !toPoint) return '';
 
@@ -316,6 +414,7 @@ var TransitGuide = (function () {
             (routes.length > 1 ? ' · 추천 ' + routes.length + '개 경로' : '') +
           '</p>' +
         '</div>' +
+        renderBusStopPanel() +
         renderRouteCards(routes, state.selectedRouteIndex) +
         '<div class="transit-result-layout">' +
           '<div class="transit-map-wrap">' +
@@ -369,7 +468,7 @@ var TransitGuide = (function () {
             '<span class="hub-page-brand">Oasi<span class="brand-five">5</span></span>' +
             '<span class="hub-page-en">Directions</span>' +
           '</h1>' +
-          '<p class="hub-hero-lead">카카오맵 <strong>교통약자 이동경로</strong>와 같은 공공데이터를 Oasi5에 맞게 제공합니다. 출발·도착을 입력하면 이동 상황에 맞는 경로와 <strong>역사 내 엘리베이터·환승 동선</strong>까지 확인할 수 있습니다.</p>' +
+          '<p class="hub-hero-lead">출발·도착은 <strong>지역명 + 아파트명</strong>만 넣어도 됩니다. 가까운 버스정류장에 맞춰 대중교통·도보 경로를 추천합니다.</p>' +
         '</div>' +
         renderRoutePanel(profile) +
         (showResult && state.fromPoint && state.toPoint && state.routes.length
@@ -437,6 +536,10 @@ var TransitGuide = (function () {
     state.loading = true;
     state.showResult = false;
     state.routes = [];
+    state.fromBusStops = [];
+    state.toBusStops = [];
+    state.fromBusStop = null;
+    state.toBusStop = null;
     mount();
 
     var NT = NaverTransit;
@@ -450,13 +553,13 @@ var TransitGuide = (function () {
     ]).then(function (pts) {
       if (!pts[0] || !pts[1]) {
         state.loading = false;
-        state.error = '위치를 찾지 못했습니다. 아파트·동·호수·도로명 주소를 더 구체적으로 입력하거나, 아래 연관 검색어에서 선택해 주세요.';
+        state.error = '위치를 찾지 못했습니다. 「지역명 + 아파트명」처럼 입력해 보세요. 예: 해운대 경동아파트';
         mount();
         return;
       }
       if (!pts[0].lat || !pts[1].lat) {
         state.loading = false;
-        state.error = '정확한 위치가 필요합니다. 연관 검색어에서 장소를 선택하거나, 주소를 더 자세히 입력해 주세요.';
+        state.error = '정확한 위치가 필요합니다. 연관 검색어에서 장소를 선택하거나, 지역명과 아파트 이름을 함께 입력해 주세요.';
         mount();
         return;
       }
@@ -464,41 +567,85 @@ var TransitGuide = (function () {
       state.fromPoint = pts[0];
       state.toPoint = pts[1];
 
-      return TransitRoutes.fetchRoutes(pts[0], pts[1], state.mode, state.profileId)
-        .then(function (data) {
-          state.loading = false;
-          state.routes = TransitRoutes.rankRoutes(data.routes || [], state.profileId);
-          state.selectedRouteIndex = 0;
-          state.routeMeta = { source: data.source, mode: data.mode };
-          state.mobilityStations = [];
+      return Promise.all([
+        NT.fetchNearbyBusStops(pts[0], 1.0, 6),
+        NT.fetchNearbyBusStops(pts[1], 1.0, 6)
+      ]).then(function (stopLists) {
+        state.fromBusStops = stopLists[0] || [];
+        state.toBusStops = stopLists[1] || [];
+        state.fromBusStop = NT.pickNearestBusStop(state.fromBusStops);
+        state.toBusStop = NT.pickNearestBusStop(state.toBusStops);
 
-          if (!state.routes.length) {
-            state.error = '경로를 찾지 못했습니다.';
-            state.showResult = false;
-            mount();
-            return;
-          }
+        var routeFrom = pts[0];
+        var routeTo = pts[1];
+        // Transit: snap to nearest bus stops so apartment-level coords still get bus recommendations.
+        if (state.mode === 'transit' && state.fromBusStop) {
+          routeFrom = {
+            name: state.fromBusStop.name,
+            address: pts[0].address || '',
+            lat: state.fromBusStop.lat,
+            lng: state.fromBusStop.lng,
+            source: 'bus-stop'
+          };
+        }
+        if (state.mode === 'transit' && state.toBusStop) {
+          routeTo = {
+            name: state.toBusStop.name,
+            address: pts[1].address || '',
+            lat: state.toBusStop.lat,
+            lng: state.toBusStop.lng,
+            source: 'bus-stop'
+          };
+        }
 
-          var selected = state.routes[0];
-          if (state.mode === 'transit' && typeof KricMobility !== 'undefined' && selected.steps) {
-            return KricMobility.enrichRouteSteps(selected.steps).then(function (enriched) {
-              state.routes = state.routes.map(function (route, i) {
-                if (i !== 0) return route;
-                return Object.assign({}, route, { steps: enriched.steps });
+        return TransitRoutes.fetchRoutes(routeFrom, routeTo, state.mode, state.profileId)
+          .then(function (data) {
+            state.loading = false;
+            var ranked = TransitRoutes.rankRoutes(data.routes || [], state.profileId);
+            if (state.mode === 'transit' && (state.fromBusStop || state.toBusStop)) {
+              ranked = ranked.map(function (route) {
+                return annotateRouteWithBusStops(
+                  route,
+                  pts[0],
+                  pts[1],
+                  state.fromBusStop,
+                  state.toBusStop
+                );
               });
-              state.mobilityStations = enriched.stations || [];
-              state.showResult = true;
-              mount();
-              var result = document.querySelector('#transit-result');
-              if (result) result.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            });
-          }
+            }
+            state.routes = ranked;
+            state.selectedRouteIndex = 0;
+            state.routeMeta = { source: data.source, mode: data.mode };
+            state.mobilityStations = [];
 
-          state.showResult = true;
-          mount();
-          var result = document.querySelector('#transit-result');
-          if (result) result.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
+            if (!state.routes.length) {
+              state.error = '경로를 찾지 못했습니다.';
+              state.showResult = false;
+              mount();
+              return;
+            }
+
+            var selected = state.routes[0];
+            if (state.mode === 'transit' && typeof KricMobility !== 'undefined' && selected.steps) {
+              return KricMobility.enrichRouteSteps(selected.steps).then(function (enriched) {
+                state.routes = state.routes.map(function (route, i) {
+                  if (i !== 0) return route;
+                  return Object.assign({}, route, { steps: enriched.steps });
+                });
+                state.mobilityStations = enriched.stations || [];
+                state.showResult = true;
+                mount();
+                var result = document.querySelector('#transit-result');
+                if (result) result.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              });
+            }
+
+            state.showResult = true;
+            mount();
+            var resultEl = document.querySelector('#transit-result');
+            if (resultEl) resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          });
+      });
     }).catch(function (err) {
       state.loading = false;
       if (err && err.code === 'ODSAY_KEY_REQUIRED') {
@@ -558,6 +705,16 @@ var TransitGuide = (function () {
       L.circleMarker([state.toPoint.lat, state.toPoint.lng], {
         radius: 8, color: '#fff', weight: 2, fillColor: '#e53935', fillOpacity: 1
       }).addTo(mapInstance).bindPopup(state.toPoint.name);
+    }
+    if (state.fromBusStop && state.fromBusStop.lat) {
+      L.circleMarker([state.fromBusStop.lat, state.fromBusStop.lng], {
+        radius: 6, color: '#fff', weight: 2, fillColor: '#1565c0', fillOpacity: 1
+      }).addTo(mapInstance).bindPopup('정류장 · ' + state.fromBusStop.name);
+    }
+    if (state.toBusStop && state.toBusStop.lat) {
+      L.circleMarker([state.toBusStop.lat, state.toBusStop.lng], {
+        radius: 6, color: '#fff', weight: 2, fillColor: '#6a1b9a', fillOpacity: 1
+      }).addTo(mapInstance).bindPopup('정류장 · ' + state.toBusStop.name);
     }
 
     setTimeout(function () { mapInstance.invalidateSize(); }, 120);

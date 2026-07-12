@@ -604,13 +604,18 @@ var DisabilityAccess = (function () {
 
   function searchFacilitiesByText(query) {
     var q = normalizeSearch(query);
-    if (!q) return [];
+    if (!q || q.length < 2) return [];
+    // Avoid weak matches like kind-only ("카페") flooding unrelated places for regional queries.
     return RECOMMENDATIONS.map(resolveEntry).filter(function (item) {
-      return normalizeSearch(item.name).indexOf(q) >= 0
-        || normalizeSearch(item.address).indexOf(q) >= 0
-        || normalizeSearch(item.kind).indexOf(q) >= 0
-        || normalizeSearch(item.photoQuery).indexOf(q) >= 0;
+      var name = normalizeSearch(item.name);
+      var addr = normalizeSearch(item.address);
+      var photo = normalizeSearch(item.photoQuery);
+      return name.indexOf(q) >= 0 || photo.indexOf(q) >= 0 || (q.length >= 3 && addr.indexOf(q) >= 0);
     });
+  }
+
+  function looksLikeRegionalPlace(query) {
+    return /아파트|빌라|오피스텔|단지|[시군구]|읍|면|동|리|로\s*\d|길\s*\d|번지|해운대|수원|부산|대구|광주|대전|울산|인천|제주|창원|청주|전주|포항|경주/.test(query);
   }
 
   function resolveDestinationFromInput() {
@@ -624,11 +629,13 @@ var DisabilityAccess = (function () {
       return;
     }
 
-    // Instant text-related recommendations (do not wait for geocode/API).
-    state.textHits = searchFacilitiesByText(trimmed);
+    var regional = looksLikeRegionalPlace(trimmed);
+    // Only show curated text hits for non-regional keyword searches (e.g. "코엑스", "성수").
+    state.textHits = regional ? [] : searchFacilitiesByText(trimmed);
     state.resolvingDestination = true;
+    state.nearbyRemote = { cafe: [], food: [], shop: [] };
     mount();
-    scheduleFacilityPhotos();
+    if (state.textHits.length) scheduleFacilityPhotos();
 
     if (state.destinationPoint && state.destinationPoint.name === trimmed) {
       state.resolvingDestination = false;
@@ -642,13 +649,10 @@ var DisabilityAccess = (function () {
       var trimmedNorm = normalizeSearch(trimmed);
       localPoint = local.find(function (p) {
         return p.lat && p.lng && normalizeSearch(p.name) === trimmedNorm;
-      }) || local.find(function (p) {
-        return p.lat && p.lng && normalizeSearch(p.name).indexOf(trimmedNorm) >= 0;
       }) || null;
     }
 
-    // If text hits have coordinates, use the first as an immediate destination center.
-    if (!localPoint && state.textHits.length && state.textHits[0].lat) {
+    if (!localPoint && !regional && state.textHits.length && state.textHits[0].lat) {
       localPoint = {
         name: trimmed,
         address: state.textHits[0].address || '',
@@ -661,65 +665,48 @@ var DisabilityAccess = (function () {
     function finishResolve(point) {
       state.resolvingDestination = false;
       if (point && point.lat && point.lng) {
-        state.destinationPoint = point;
+        state.destinationPoint = Object.assign({}, point, {
+          name: regional ? trimmed : (point.name || trimmed)
+        });
         refreshNearbyLists();
         return;
       }
-      // Keep textHits visible even if geocode fails.
       state.destinationPoint = null;
       resetNearbyState();
       mount();
       scheduleFacilityPhotos();
     }
 
-    if (localPoint) {
-      finishResolve(localPoint);
-      // Still refine with geocode in background when query looks like an address.
-      if (/[가-힣].*(로|길|동|아파트|번지)/.test(trimmed)) {
-        fetch(apiUrl('/api/geocode?q=' + encodeURIComponent(trimmed)))
-          .then(function (res) {
-            var ct = (res.headers.get('content-type') || '');
-            if (!res.ok || ct.indexOf('application/json') < 0) return null;
-            return res.json();
-          })
-          .then(function (data) {
-            if (data && data.point && data.point.lat) {
-              state.destinationPoint = Object.assign({}, data.point, { name: trimmed });
-              refreshNearbyLists();
+    function geocodeNow() {
+      return fetch(apiUrl('/api/geocode?q=' + encodeURIComponent(trimmed)))
+        .then(function (res) {
+          var ct = (res.headers.get('content-type') || '');
+          if (!res.ok || ct.indexOf('application/json') < 0) throw new Error('geocode-api');
+          return res.json();
+        })
+        .then(function (data) {
+          if (data && data.point && data.point.lat) return data.point;
+          throw new Error('geocode-empty');
+        });
+    }
+
+    // Regional / apartment queries: geocode first (don't wait on unrelated curated hits).
+    if (regional || !localPoint) {
+      geocodeNow()
+        .then(finishResolve)
+        .catch(function () {
+          return geocodeClient(trimmed).then(function (point) {
+            if (point) return finishResolve(point);
+            if (typeof NaverTransit !== 'undefined') {
+              return NaverTransit.resolvePoint(trimmed).then(finishResolve);
             }
-          })
-          .catch(function () {});
-      }
+            finishResolve(null);
+          });
+        });
       return;
     }
 
-    fetch(apiUrl('/api/geocode?q=' + encodeURIComponent(trimmed)))
-      .then(function (res) {
-        var ct = (res.headers.get('content-type') || '');
-        if (!res.ok || ct.indexOf('application/json') < 0) throw new Error('geocode-api');
-        return res.json();
-      })
-      .then(function (data) {
-        if (data && data.point && data.point.lat) {
-          finishResolve(Object.assign({}, data.point, {
-            name: /[가-힣].*(로|길|동|아파트|번지)/.test(trimmed) ? trimmed : (data.point.name || trimmed)
-          }));
-          return;
-        }
-        throw new Error('geocode-empty');
-      })
-      .catch(function () {
-        return geocodeClient(trimmed).then(function (point) {
-          if (point) {
-            finishResolve(point);
-            return;
-          }
-          if (typeof NaverTransit !== 'undefined') {
-            return NaverTransit.resolvePoint(trimmed).then(finishResolve);
-          }
-          finishResolve(null);
-        }).catch(function () { finishResolve(null); });
-      });
+    finishResolve(localPoint);
   }
 
   function submitDestinationSearch() {
@@ -745,7 +732,7 @@ var DisabilityAccess = (function () {
       + '&radius=' + NEARBY_RADIUS_KM
       + '&limit=' + NEARBY_LIMIT);
     return new Promise(function (resolve, reject) {
-      var timer = setTimeout(function () { reject(new Error('nearby-timeout')); }, 12000);
+      var timer = setTimeout(function () { reject(new Error('nearby-timeout')); }, 10000);
       fetch(url)
         .then(function (res) {
           clearTimeout(timer);
@@ -793,13 +780,12 @@ var DisabilityAccess = (function () {
       return;
     }
 
-    // Show curated results immediately; enrich with OSM in the background.
+    // Show nearby OSM results with a clear loading state. Skip unrelated curated dumps.
     state.nearbyRemote = { cafe: [], food: [], shop: [] };
-    state.loadingNearby = { cafe: false, food: false, shop: false };
+    state.loadingNearby = { cafe: true, food: true, shop: true };
     state.nearbyError = false;
     state.nearbyPartialError = false;
     mount();
-    scheduleFacilityPhotos();
 
     var point = state.destinationPoint;
     fetchNearbyAll(point)
@@ -817,7 +803,7 @@ var DisabilityAccess = (function () {
       })
       .catch(function () {
         state.loadingNearby = { cafe: false, food: false, shop: false };
-        state.nearbyError = false;
+        state.nearbyError = true;
         state.nearbyPartialError = false;
         mount();
       });
@@ -835,7 +821,8 @@ var DisabilityAccess = (function () {
 
   function remotePlaceToEntry(item, kindKey) {
     var kindMap = { cafe: '카페', food: '식당', shop: '가게·쇼핑' };
-    var image = item.image || mapThumbUrl(item.lat, item.lng);
+    var image = item.image || '';
+    var photoUrl = photoImgUrl(item.name, item.address || '', item.lat, item.lng, image, '');
     return {
       kind: kindMap[kindKey] || '장소',
       name: item.name,
@@ -843,18 +830,19 @@ var DisabilityAccess = (function () {
       lat: item.lat,
       lng: item.lng,
       image: image,
-      photoUrl: image,
+      photoUrl: photoUrl,
       photoQuery: item.name,
       source: 'nearby',
       distanceKm: item.distanceKm,
-      audienceFor: '휠체어·유모차·보행 보조 — 주변 ' + NEARBY_RADIUS_KM + 'km 검색',
-      note: '목적지에서 ' + formatDistance(item.distanceKm) + ' 거리입니다. 입장 전 계단·통로·좁은 골목 여부를 확인하세요. 쇼핑몰·1층 매장·백화점 안 매장을 우선 추천합니다.'
+      audienceFor: '휠체어·유모차·보행 보조 — 주변 검색',
+      note: '목적지에서 ' + formatDistance(item.distanceKm) + ' 거리입니다. 입장 전 계단·통로 여부를 확인하세요.'
     };
   }
 
   function mergeCategory(curated, remote, point, kindKey) {
     var list = [];
     var seen = {};
+    var regional = looksLikeRegionalPlace(state.destination);
 
     (remote || []).forEach(function (remoteItem) {
       if (remoteItem.distanceKm != null && remoteItem.distanceKm > NEARBY_MAX_KM) return;
@@ -865,12 +853,15 @@ var DisabilityAccess = (function () {
       list.push(entry);
     });
 
-    filterNearby(curated, point).forEach(function (item) {
-      var key = (item.name || '') + '|' + item.lat + ',' + item.lng;
-      if (seen[key]) return;
-      seen[key] = true;
-      list.push(item);
-    });
+    // Regional searches: only OSM nearby. Curated Seoul-heavy lists feel unrelated.
+    if (!regional) {
+      filterNearby(curated, point).forEach(function (item) {
+        var key = (item.name || '') + '|' + item.lat + ',' + item.lng;
+        if (seen[key]) return;
+        seen[key] = true;
+        list.push(item);
+      });
+    }
 
     list.sort(function (a, b) {
       return (a.distanceKm == null ? 999 : a.distanceKm) - (b.distanceKm == null ? 999 : b.distanceKm);
@@ -894,17 +885,13 @@ var DisabilityAccess = (function () {
       return item.distanceKm <= NEARBY_RADIUS_KM;
     });
 
-    // If too few within 5km, widen to 15km so more destinations still show results.
     if (nearby.length < 3) {
       nearby = withDist.filter(function (item) {
-        return item.distanceKm <= 15;
+        return item.distanceKm <= NEARBY_MAX_KM;
       });
     }
-    // Still empty → show nearest curated places nationwide with distance labels.
-    if (!nearby.length) {
-      nearby = withDist.slice(0, NEARBY_LIMIT);
-    }
 
+    // Do NOT dump nationwide curated places for regional searches — that feels unrelated.
     return nearby.slice(0, NEARBY_LIMIT);
   }
 
@@ -947,7 +934,7 @@ var DisabilityAccess = (function () {
         '<div class="access-dest-search-row">' +
           '<div class="access-dest-field transit-field-suggest">' +
             '<input type="text" id="access-dest" class="transit-input access-dest-input" ' +
-              'placeholder="목적지" ' +
+              'placeholder="예: 해운대 센텀 · 수원 광교" ' +
               'value="' + escapeHtml(state.destination) + '" autocomplete="off" aria-label="가게 될 곳" />' +
             '<div id="access-dest-suggest">' + renderSuggestions(state.suggestDest) + '</div>' +
           '</div>' +
@@ -1065,14 +1052,25 @@ var DisabilityAccess = (function () {
 
   function photoImgUrl(name, address, lat, lng, directSrc, photoUrl) {
     var direct = cleanImageUrl(photoUrl) || cleanImageUrl(directSrc);
-    if (direct && /^https?:\/\//i.test(direct)) return direct;
+    if (direct && /^https?:\/\//i.test(direct) && direct.indexOf('basemaps.cartocdn.com') < 0) {
+      return direct;
+    }
     if (name && FACILITY_IMAGES[name]) {
       var mapped = cleanImageUrl(FACILITY_IMAGES[name]);
       if (mapped && /^https?:\/\//i.test(mapped)) return mapped;
     }
-    var map = mapThumbUrl(lat, lng);
-    if (map) return map;
-    return placeholderThumb(name);
+    // Fetch Naver/Google-like shop thumbnails through our API proxy.
+    if (name) {
+      var params = ['name=' + encodeURIComponent(name)];
+      if (address) params.push('address=' + encodeURIComponent(address));
+      if (lat != null && lng != null && lat !== '' && lng !== '') {
+        params.push('lat=' + encodeURIComponent(lat));
+        params.push('lng=' + encodeURIComponent(lng));
+      }
+      if (direct && /^https?:\/\//i.test(direct)) params.push('src=' + encodeURIComponent(direct));
+      return apiUrl('/api/place-photo/img?' + params.join('&'));
+    }
+    return mapThumbUrl(lat, lng) || placeholderThumb(name);
   }
 
   function renderThumb(item) {
@@ -1163,42 +1161,20 @@ var DisabilityAccess = (function () {
     }
 
     if (hasPoint) {
+      // For regional destinations, prefer nearby OSM results and only keep curated places that are actually near.
       cafes = mergeCategory(resolved.filter(function (r) { return r.kind === '카페'; }), state.nearbyRemote.cafe, point, 'cafe');
       food = mergeCategory(resolved.filter(function (r) { return r.kind === '식당'; }), state.nearbyRemote.food, point, 'food');
       shops = mergeCategory(resolved.filter(function (r) { return r.kind === '가게·쇼핑'; }), state.nearbyRemote.shop, point, 'shop');
-      // Keep strong text matches at top if query still matches.
-      if (hasTextHits) {
-        var hitMap = { cafe: [], food: [], shop: [] };
-        state.textHits.forEach(function (hit) {
-          if (hit.kind === '카페') hitMap.cafe.push(hit);
-          else if (hit.kind === '식당') hitMap.food.push(hit);
-          else if (hit.kind === '가게·쇼핑') hitMap.shop.push(hit);
-        });
-        function prependHits(list, hits) {
-          var seen = {};
-          var out = [];
-          hits.concat(list).forEach(function (item) {
-            var key = (item.name || '') + '|' + item.lat + ',' + item.lng;
-            if (seen[key]) return;
-            seen[key] = true;
-            out.push(item);
-          });
-          return out.slice(0, NEARBY_LIMIT);
-        }
-        cafes = prependHits(cafes, hitMap.cafe);
-        food = prependHits(food, hitMap.food);
-        shops = prependHits(shops, hitMap.shop);
-      }
     }
 
     function section(title, note, items, offset) {
       if (!hasPoint && !hasTextHits) return '';
       if (!items.length) {
-        if (state.resolvingDestination) {
-          return '<section class="hub-section"><h2>' + escapeHtml(title) + '</h2><p class="hub-section-note access-loading-note">관련 장소를 찾는 중…</p></section>';
+        if (state.resolvingDestination || isNearbyLoading()) {
+          return '<section class="hub-section"><h2>' + escapeHtml(title) + '</h2><p class="hub-section-note access-loading-note">주변 관련 장소를 찾는 중…</p></section>';
         }
         return '<section class="hub-section"><h2>' + escapeHtml(title) + '</h2><p class="hub-section-note">「' +
-          escapeHtml((point && point.name) || state.destination) + '」 관련 ' + escapeHtml(title) + ' 추천이 없습니다.</p></section>';
+          escapeHtml((point && point.name) || state.destination) + '」 근처 ' + escapeHtml(title) + ' 추천이 없습니다.</p></section>';
       }
       var sectionNote = hasPoint
         ? ('「' + (point.name || state.destination) + '」 주변 · ' + note)
@@ -1245,32 +1221,33 @@ var DisabilityAccess = (function () {
     var img = row.querySelector('[data-facility-thumb]');
     if (!img) return;
     var name = row.getAttribute('data-place-name') || '';
+    var address = row.getAttribute('data-place-address') || '';
+    var lat = row.getAttribute('data-place-lat');
+    var lng = row.getAttribute('data-place-lng');
 
     function failSoft() {
-      var lat = row.getAttribute('data-place-lat');
-      var lng = row.getAttribute('data-place-lng');
       var retries = parseInt(row.dataset.photoRetry || '0', 10);
-      if (retries < 1) {
+      if (retries < 1 && name) {
         row.dataset.photoRetry = '1';
+        img.removeAttribute('hidden');
+        img.src = apiUrl('/api/place-photo/img?name=' + encodeURIComponent(name) +
+          (address ? '&address=' + encodeURIComponent(address) : '') +
+          (lat ? '&lat=' + encodeURIComponent(lat) : '') +
+          (lng ? '&lng=' + encodeURIComponent(lng) : ''));
+        return;
+      }
+      if (retries < 2) {
+        row.dataset.photoRetry = '2';
         var mapSrc = mapThumbUrl(lat, lng);
-        if (mapSrc && img.getAttribute('src') !== mapSrc) {
+        if (mapSrc) {
           img.removeAttribute('hidden');
           img.src = mapSrc;
           return;
         }
       }
-      if (retries < 2) {
-        row.dataset.photoRetry = '2';
-        img.removeAttribute('hidden');
-        img.src = placeholderThumb(name);
-        return;
-      }
-      var placeholder = row.querySelector('[data-facility-placeholder]');
-      if (placeholder) {
-        placeholder.removeAttribute('hidden');
-        placeholder.innerHTML = '<span class="facility-recommend-thumb-loading-text">📷</span>';
-      }
-      img.setAttribute('hidden', '');
+      row.dataset.photoRetry = '3';
+      img.removeAttribute('hidden');
+      img.src = placeholderThumb(name);
     }
 
     img.onload = function () { revealPhoto(row); };

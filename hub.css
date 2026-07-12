@@ -1576,6 +1576,67 @@
   text-decoration: underline;
 }
 
+.transit-bus-panel {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 92%, var(--green-light));
+}
+
+.transit-bus-lead {
+  margin: 0 0 12px;
+  font-size: 0.875rem;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.transit-bus-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.transit-bus-title {
+  margin: 0 0 8px;
+  font-size: 0.9375rem;
+}
+
+.transit-bus-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.transit-bus-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid transparent;
+  font-size: 0.875rem;
+}
+
+.transit-bus-item.is-active {
+  border-color: #03c75a;
+}
+
+.transit-bus-item span {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .transit-bus-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .transit-step-icon[data-type="car"]::after { content: "🚗"; font-size: 14px; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 .transit-step-icon[data-type="bicycle"]::after { content: "🚲"; font-size: 14px; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
 

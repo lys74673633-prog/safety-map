@@ -315,7 +315,11 @@ def is_allowed_image_url(url: str) -> bool:
         return False
     if any(url.startswith(prefix) for prefix in ALLOWED_IMAGE_PREFIXES):
         return True
-    return "pstatic.net" in url and score_image_url(url) > 0
+    if "pstatic.net" in url and score_image_url(url) > 0:
+        return True
+    if ("encrypted-tbn" in url or "gstatic.com" in url or "googleusercontent.com" in url) and score_image_url(url) > 0:
+        return True
+    return False
 
 
 def collect_image_urls_from_html(html: str) -> list[str]:
@@ -409,7 +413,13 @@ def score_image_url(url: str) -> int:
         return 60
     if "phinf.pstatic.net" in low:
         return 40
-    return 10
+    if "encrypted-tbn" in low or "gstatic.com/images" in low:
+        return 55
+    if "googleusercontent.com" in low:
+        return 50
+    if low.startswith("https://"):
+        return 10
+    return 0
 
 
 def pick_best_image(urls: list[str]) -> str:
@@ -638,12 +648,17 @@ def merge_place_results(*groups: list[dict], limit: int = 8) -> list[dict]:
 
 
 def geocode_query_variants(query: str) -> list[str]:
-    q = query.strip()
+    q = re.sub(r"\s*\d+\s*동(\s*\d+\s*호)?", " ", query.strip())
+    q = re.sub(r"\s*\d+\s*호", " ", q)
+    q = re.sub(r"\s+", " ", q).strip()
     if not q:
         return []
-    variants = [q, f"{q}, 대한민국"]
+    variants = [q, f"{q}, 대한민국", f"{q} 아파트" if "아파트" not in q else q]
     parts = re.split(r"\s+", q)
     if len(parts) >= 2:
+        rev = " ".join(reversed(parts))
+        variants.append(rev)
+        variants.append(f"{rev}, 대한민국")
         variants.append(", ".join(reversed(parts)) + ", 대한민국")
     m = re.match(r"^(.+?[시도])(.+?[군구])(.+)$", q)
     if m:
@@ -654,7 +669,8 @@ def geocode_query_variants(query: str) -> list[str]:
     deduped: list[str] = []
     seen: set[str] = set()
     for v in variants:
-        if v not in seen:
+        v = v.strip()
+        if v and v not in seen:
             seen.add(v)
             deduped.append(v)
     return deduped
@@ -806,6 +822,72 @@ NEARBY_KIND_QUERIES: dict[str, str] = {
 }
 
 _nearby_cache: dict[str, tuple[float, list]] = {}
+_bus_stop_cache: dict[str, tuple[float, list]] = {}
+
+
+def search_nearby_bus_stops(lat: float, lng: float, radius_km: float = 0.8, limit: int = 8) -> list[dict]:
+    cache_key = f"{lat:.4f},{lng:.4f}|{radius_km}|{limit}"
+    now = time.time()
+    cached = _bus_stop_cache.get(cache_key)
+    if cached and now - cached[0] < 1800:
+        return cached[1]
+
+    radius_m = int(radius_km * 1000)
+    query = (
+        f'[out:json][timeout:8];('
+        f'node["highway"="bus_stop"](around:{radius_m},{lat},{lng});'
+        f'node["public_transport"="platform"]["bus"="yes"](around:{radius_m},{lat},{lng});'
+        f'node["amenity"="bus_station"](around:{radius_m},{lat},{lng});'
+        f');out body 30;'
+    )
+    endpoints = [
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass-api.de/api/interpreter",
+    ]
+    data = None
+    for endpoint in endpoints:
+        try:
+            req = urllib.request.Request(
+                endpoint,
+                data=("data=" + urllib.parse.quote(query)).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                    "User-Agent": "Oasi5/1.0",
+                },
+                method="POST",
+            )
+            data = json.loads(urllib.request.urlopen(req, timeout=10).read().decode("utf-8", "replace"))
+            break
+        except Exception:
+            continue
+
+    items: list[dict] = []
+    seen: set[str] = set()
+    for el in (data or {}).get("elements") or []:
+        tags = el.get("tags") or {}
+        name = tags.get("name") or tags.get("name:ko") or "버스정류장"
+        elat = el.get("lat")
+        elon = el.get("lon")
+        if elat is None or elon is None:
+            continue
+        dist = haversine_km(lat, lng, float(elat), float(elon))
+        key = f"{name}|{float(elat):.5f},{float(elon):.5f}"
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append({
+            "name": name,
+            "lat": float(elat),
+            "lng": float(elon),
+            "distanceKm": round(dist, 3),
+            "distanceM": int(round(dist * 1000)),
+            "source": "osm",
+            "kind": "bus_stop",
+        })
+    items.sort(key=lambda x: x["distanceKm"])
+    items = items[:limit]
+    _bus_stop_cache[cache_key] = (now, items)
+    return items
 
 
 def _collect_nearby_from_html(
@@ -1452,8 +1534,29 @@ def resolve_api(path: str, params: dict) -> tuple[int, str, bytes]:
         q = (params.get("q") or [""])[0]
         point = geocode_point(q)
         if not point:
-            return 404, "application/json; charset=utf-8", json_body({"error": True, "message": "위치를 찾지 못했습니다.", "query": q})
+            return 404, "application/json; charset=utf-8", json_body({"error": True, "message": "위치를 찾지 못했습니다. 지역명 + 아파트명으로 입력해 보세요.", "query": q})
         return 200, "application/json; charset=utf-8", json_body({"query": q, "point": point})
+
+    if path == "/api/nearby-bus-stops":
+        try:
+            lat = float((params.get("lat") or ["0"])[0])
+            lng = float((params.get("lng") or ["0"])[0])
+        except ValueError:
+            return 400, "application/json; charset=utf-8", json_body({"error": True, "message": "좌표 형식이 올바르지 않습니다."})
+        try:
+            radius = min(max(float((params.get("radius") or ["0.8"])[0]), 0.3), 2.0)
+        except ValueError:
+            radius = 0.8
+        limit = min(max(int((params.get("limit") or ["8"])[0]), 3), 15)
+        if not (124 <= lng <= 132 and 33 <= lat <= 39):
+            return 400, "application/json; charset=utf-8", json_body({"error": True, "message": "한국 내 좌표만 지원합니다."})
+        items = search_nearby_bus_stops(lat, lng, radius, limit)
+        return 200, "application/json; charset=utf-8", json_body({
+            "lat": lat,
+            "lng": lng,
+            "radiusKm": radius,
+            "items": items,
+        })
 
     if path == "/api/kric/station-mobility":
         result = get_station_mobility(params)

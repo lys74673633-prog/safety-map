@@ -57,9 +57,17 @@ var NaverTransit = (function () {
   var searchIndex = null;
   var remoteSearchUrl = '/api/transit-search';
   var geocodeUrl = '/api/geocode';
+  var busStopsUrl = '/api/nearby-bus-stops';
 
   function normalize(text) {
     return String(text || '').replace(/\s+/g, '').toLowerCase();
+  }
+
+  function looksLikeHomeQuery(query) {
+    var q = String(query || '').trim();
+    if (q.length < 2) return false;
+    return /아파트|빌라|오피스텔|단지|[시군구]|읍|면|동|리|로\s*\d|길\s*\d|번지|해운대|수원|부산|대구|광주|대전|울산|인천|제주|창원|청주|전주|포항|경주/.test(q)
+      || (/\s/.test(q) && /[가-힣]{2,}/.test(q));
   }
 
   function encodeName(name) {
@@ -232,9 +240,25 @@ var NaverTransit = (function () {
   }
 
   function searchPlaces(query, limit) {
-    var local = searchLocal(query, limit);
-    return searchRemote(query, limit).then(function (remote) {
-      return mergeResults(local, remote, limit);
+    var local = looksLikeHomeQuery(query) ? [] : searchLocal(query, limit);
+    return Promise.all([
+      searchRemote(query, limit),
+      looksLikeHomeQuery(query) ? geocodeRemote(query) : Promise.resolve(null)
+    ]).then(function (results) {
+      var remote = results[0] || [];
+      var geo = results[1];
+      var merged = mergeResults(local, remote, limit);
+      if (geo && geo.lat && geo.lng) {
+        merged = mergeResults([{
+          name: geo.name || query,
+          address: geo.address || '',
+          lat: geo.lat,
+          lng: geo.lng,
+          kind: '주소검색',
+          source: 'geocode'
+        }], merged, limit);
+      }
+      return merged;
     });
   }
 
@@ -263,6 +287,18 @@ var NaverTransit = (function () {
     var trimmed = String(query || '').trim();
     if (!trimmed) return Promise.resolve(null);
 
+    // Region + apartment / address: geocode first so landmark name collisions don't win.
+    if (looksLikeHomeQuery(trimmed)) {
+      return geocodeRemote(trimmed).then(function (geo) {
+        if (geo && geo.lat && geo.lng) return geo;
+        return searchRemote(trimmed, 6).then(function (remote) {
+          var best = (remote || []).find(function (p) { return p.lat && p.lng; });
+          if (best) return Object.assign({}, best, { name: trimmed });
+          return geocodeNominatim(trimmed);
+        });
+      });
+    }
+
     var local = searchLocal(trimmed, 5);
     var exact = local.find(function (p) { return normalize(p.name) === normalize(trimmed); });
     if (exact && exact.lat && exact.lng) {
@@ -285,6 +321,29 @@ var NaverTransit = (function () {
         return nom || null;
       });
     });
+  }
+
+  function fetchNearbyBusStops(point, radiusKm, limit) {
+    if (!point || point.lat == null || point.lng == null) return Promise.resolve([]);
+    var url = busStopsUrl
+      + '?lat=' + encodeURIComponent(point.lat)
+      + '&lng=' + encodeURIComponent(point.lng)
+      + '&radius=' + encodeURIComponent(radiusKm || 0.8)
+      + '&limit=' + encodeURIComponent(limit || 6);
+    return fetch(url)
+      .then(function (res) {
+        if (!res.ok) throw new Error('bus-stops');
+        return res.json();
+      })
+      .then(function (data) {
+        return (data && data.items) ? data.items : [];
+      })
+      .catch(function () { return []; });
+  }
+
+  function pickNearestBusStop(stops) {
+    if (!stops || !stops.length) return null;
+    return stops[0];
   }
 
   function formatEndpoint(point) {
@@ -344,6 +403,9 @@ var NaverTransit = (function () {
     searchRemote: searchRemote,
     searchPlaces: searchPlaces,
     resolvePoint: resolvePoint,
+    fetchNearbyBusStops: fetchNearbyBusStops,
+    pickNearestBusStop: pickNearestBusStop,
+    looksLikeHomeQuery: looksLikeHomeQuery,
     buildDirectionsWebUrl: buildDirectionsWebUrl,
     buildDirectionsAppUrl: buildDirectionsAppUrl,
     buildSearchUrl: buildSearchUrl,
