@@ -1,22 +1,13 @@
 const { sendJson, setCors, fetchJson } = require('./_http');
 
 const OSRM = 'https://router.project-osrm.org/route/v1';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 async function searchOsrm(mode, sx, sy, ex, ey, fromName, toName) {
   const profileMap = { walk: 'foot', car: 'driving', bicycle: 'bike' };
   const profile = profileMap[mode] || 'foot';
   const url =
-    OSRM +
-    '/' +
-    profile +
-    '/' +
-    sx +
-    ',' +
-    sy +
-    ';' +
-    ex +
-    ',' +
-    ey +
+    OSRM + '/' + profile + '/' + sx + ',' + sy + ';' + ex + ',' + ey +
     '?overview=full&geometries=geojson&steps=true';
   const data = await fetchJson(url);
   if (data.code !== 'Ok' || !data.routes || !data.routes.length) {
@@ -31,61 +22,187 @@ async function searchOsrm(mode, sx, sy, ex, ey, fromName, toName) {
   return {
     mode: mode,
     source: 'osrm',
-    routes: [
-      {
-        id: 0,
-        summary: {
-          totalMinutes: totalMin,
-          payment: null,
-          transfers: 0,
-          walkMeters: mode === 'walk' ? Math.round(route.distance || 0) : 0,
-          walkMinutes: mode === 'walk' ? totalMin : 0,
-          busCount: 0,
-          subwayCount: 0,
-          label: labels[mode] || mode,
-          firstStop: fromName,
-          lastStop: toName,
-        },
-        steps: [
-          {
-            type: mode,
-            duration: totalMin,
-            distance: Math.round(route.distance || 0),
-            from: fromName,
-            to: toName,
-            line: null,
-            notes: [],
-          },
-        ],
-        polyline: polyline,
+    routes: [{
+      id: 0,
+      summary: {
+        totalMinutes: totalMin,
+        payment: null,
+        transfers: 0,
+        walkMeters: mode === 'walk' ? Math.round(route.distance || 0) : 0,
+        walkMinutes: mode === 'walk' ? totalMin : 0,
+        busCount: 0,
+        subwayCount: 0,
+        label: labels[mode] || mode,
+        firstStop: fromName,
+        lastStop: toName,
       },
-    ],
+      steps: [{
+        type: mode,
+        duration: totalMin,
+        distance: Math.round(route.distance || 0),
+        from: fromName,
+        to: toName,
+        line: null,
+        notes: [],
+      }],
+      polyline: polyline,
+    }],
   };
 }
 
-async function searchOdsay(sx, sy, ex, ey, fromName, toName) {
-  const key = process.env.ODSAY_API_KEY;
-  if (!key) {
+function pushPoint(polyline, lng, lat) {
+  if (!lng || !lat) return;
+  const pt = [lat, lng];
+  if (!polyline.length || polyline[polyline.length - 1][0] !== pt[0] || polyline[polyline.length - 1][1] !== pt[1]) {
+    polyline.push(pt);
+  }
+}
+
+function parseNaverStep(step, fromName, toName) {
+  const stype = step.type;
+  const duration = Math.max(0, Math.round((step.duration || 0) / 60000));
+  const distance = Math.max(0, Number(step.distance) || 0);
+
+  if (stype === 'WALKING') {
+    const goal = (((step.walkPath || {}).summary || {}).goal) || {};
     return {
-      error: true,
-      code: 'ODSAY_KEY_REQUIRED',
-      message: '대중교통 경로는 ODsay API 키가 필요합니다. 도보·자동차·자전거는 바로 이용할 수 있습니다.',
+      type: 'walk',
+      duration: duration,
+      distance: distance,
+      from: fromName,
+      to: goal.name || toName,
+      line: null,
+      notes: [],
     };
   }
+  if (stype === 'SUBWAY' || stype === 'BUS') {
+    const routes = step.routes || [];
+    const line = (routes[0] && routes[0].name) || (stype === 'SUBWAY' ? '지하철' : '버스');
+    const stops = step.stops || [];
+    const fromSt = stops[0] ? (stops[0].displayName || stops[0].name) : '';
+    const toSt = stops.length ? (stops[stops.length - 1].displayName || stops[stops.length - 1].name) : '';
+    return {
+      type: stype === 'SUBWAY' ? 'subway' : 'bus',
+      duration: duration,
+      distance: distance,
+      from: fromSt,
+      to: toSt,
+      line: line,
+      stationCount: Math.max(0, stops.length - 1),
+      notes: stype === 'BUS' ? ['버스는 저상버스·리프트 장착 여부가 노선·차량마다 다릅니다.'] : [],
+    };
+  }
+  return null;
+}
+
+function parseNaverPath(path, fromName, toName, idx) {
+  const totalMin = Math.max(1, Math.round((path.duration || 0) / 60000));
+  const walkMin = Math.max(0, Math.round((path.walkingDuration || 0) / 60000));
+  const steps = [];
+  const polyline = [];
+  let busCount = 0;
+  let subwayCount = 0;
+  let firstStop = '';
+  let lastStop = '';
+
+  (path.legs || []).forEach(function (leg) {
+    (leg.steps || []).forEach(function (step) {
+      const parsed = parseNaverStep(step, fromName, toName);
+      if (!parsed) return;
+      if (parsed.type === 'bus') busCount += 1;
+      if (parsed.type === 'subway') subwayCount += 1;
+      if (!firstStop && parsed.from) firstStop = parsed.from;
+      if (parsed.to) lastStop = parsed.to;
+      steps.push(parsed);
+
+      const walkPath = ((step.walkPath || {}).path) || [];
+      walkPath.forEach(function (pt) {
+        if (Array.isArray(pt) && pt.length >= 2) pushPoint(polyline, pt[0], pt[1]);
+      });
+      (step.points || []).forEach(function (pt) {
+        if (pt && typeof pt === 'object') pushPoint(polyline, pt.x, pt.y);
+      });
+    });
+  });
+
+  const labels = path.pathLabels || [];
+  const label = labels[0] && labels[0].labelText ? labels[0].labelText : '대중교통';
+  let payment = null;
+  const fareGroups = path.fareGroups || [];
+  if (fareGroups[0] && fareGroups[0].fareOptions && fareGroups[0].fareOptions[0]) {
+    payment = fareGroups[0].fareOptions[0].fare;
+  }
+
+  return {
+    id: idx,
+    summary: {
+      totalMinutes: totalMin,
+      payment: payment,
+      transfers: Math.max(0, busCount + subwayCount - 1),
+      walkMeters: walkMin * 80,
+      walkMinutes: walkMin,
+      busCount: busCount,
+      subwayCount: subwayCount,
+      label: label,
+      firstStop: firstStop || fromName,
+      lastStop: lastStop || toName,
+    },
+    steps: steps,
+    polyline: polyline,
+  };
+}
+
+async function searchTransitNaver(sx, sy, ex, ey, fromName, toName) {
+  const q = new URLSearchParams({ start: sx + ',' + sy, goal: ex + ',' + ey });
+  const url = 'https://map.naver.com/p/api/directions/transit?' + q.toString();
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': UA,
+      Referer: 'https://map.naver.com/',
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) {
+    return { error: true, code: 'NAVER_TRANSIT_ERROR', message: '대중교통 경로를 불러오지 못했습니다.' };
+  }
+  const data = await res.json();
+  const paths = data.paths || [];
+  const routes = [];
+  paths.slice(0, 4).forEach(function (path, i) {
+    const parsed = parseNaverPath(path, fromName, toName, i);
+    if (parsed.steps && parsed.steps.length) routes.push(parsed);
+  });
+  if (!routes.length) {
+    return { error: true, code: 'NO_ROUTE', message: '대중교통 경로를 찾지 못했습니다. 출발·도착지를 다시 확인해 주세요.' };
+  }
+  return { mode: 'transit', routes: routes, source: 'naver' };
+}
+
+async function searchOdsay(sx, sy, ex, ey, fromName, toName, profile) {
+  const key = process.env.ODSAY_API_KEY;
+  if (!key) return null;
+
+  let opt = 0;
+  if (profile === 'elderly' || profile === 'visual' || profile === 'walker') opt = 5;
+  else if (profile === 'wheelchair' || profile === 'stroller') opt = 4;
+
   const qs = new URLSearchParams({
     apiKey: key,
     SX: String(sx),
     SY: String(sy),
     EX: String(ex),
     EY: String(ey),
-    lang: '0',
+    OPT: String(opt),
+    SearchPathType: '0',
   });
   const data = await fetchJson('https://api.odsay.com/v1/api/searchPubTransPathT?' + qs.toString());
-  if (!data || !data.result || !data.result.path || !data.result.path.length) {
-    return { error: true, code: 'NO_ROUTE', message: '대중교통 경로를 찾지 못했습니다.' };
+  if (data.error) {
+    return { error: true, code: 'ODSAY_ERROR', message: 'ODsay 경로 조회에 실패했습니다.' };
   }
+  const paths = ((data.result || {}).path) || [];
+  if (!paths.length) return { error: true, code: 'NO_ROUTE', message: '대중교통 경로를 찾지 못했습니다.' };
 
-  const routes = data.result.path.slice(0, 5).map(function (path, idx) {
+  const routes = paths.slice(0, 5).map(function (path, idx) {
     const info = path.info || {};
     const walkM = Math.max(0, Number(info.totalWalk) || 0);
     const walkMin = Math.max(0, Number(info.totalWalkTime) || Math.round(walkM / 80));
@@ -103,25 +220,22 @@ async function searchOdsay(sx, sy, ex, ey, fromName, toName) {
         firstStop: fromName,
         lastStop: toName,
       },
-      steps: (path.subPath || [])
-        .map(function (sub) {
-          const t = Number(sub.trafficType);
-          const type = t === 1 ? 'subway' : t === 2 ? 'bus' : 'walk';
-          return {
-            type: type,
-            duration: Math.max(0, Number(sub.sectionTime) || 0),
-            distance: Math.max(0, Number(sub.distance) || 0),
-            from: sub.startName || fromName,
-            to: sub.endName || toName,
-            line: (sub.lane && sub.lane[0] && (sub.lane[0].name || sub.lane[0].busNo)) || null,
-            notes: [],
-          };
-        })
-        .filter(Boolean),
+      steps: (path.subPath || []).map(function (sub) {
+        const t = Number(sub.trafficType);
+        const type = t === 1 ? 'subway' : t === 2 ? 'bus' : 'walk';
+        return {
+          type: type,
+          duration: Math.max(0, Number(sub.sectionTime) || 0),
+          distance: Math.max(0, Number(sub.distance) || 0),
+          from: sub.startName || fromName,
+          to: sub.endName || toName,
+          line: (sub.lane && sub.lane[0] && (sub.lane[0].name || sub.lane[0].busNo)) || null,
+          notes: [],
+        };
+      }),
       polyline: [],
     };
   });
-
   return { mode: 'transit', source: 'odsay', routes: routes };
 }
 
@@ -137,6 +251,7 @@ module.exports = async function handler(req, res) {
   const ex = Number(req.query.toLng);
   const ey = Number(req.query.toLat);
   const mode = String(req.query.mode || 'transit');
+  const profile = String(req.query.profile || 'wheelchair');
   const fromName = String(req.query.fromName || '출발');
   const toName = String(req.query.toName || '도착');
 
@@ -154,7 +269,10 @@ module.exports = async function handler(req, res) {
   try {
     let result;
     if (mode === 'transit') {
-      result = await searchOdsay(sx, sy, ex, ey, fromName, toName);
+      result = await searchOdsay(sx, sy, ex, ey, fromName, toName, profile);
+      if (!result || result.error) {
+        result = await searchTransitNaver(sx, sy, ex, ey, fromName, toName);
+      }
     } else if (mode === 'walk' || mode === 'car' || mode === 'bicycle') {
       result = await searchOsrm(mode, sx, sy, ex, ey, fromName, toName);
     } else {
@@ -162,8 +280,7 @@ module.exports = async function handler(req, res) {
     }
 
     if (result.error) {
-      const status = result.code === 'ODSAY_KEY_REQUIRED' ? 503 : 400;
-      return sendJson(res, status, result);
+      return sendJson(res, result.code === 'ODSAY_KEY_REQUIRED' ? 503 : 400, result);
     }
     return sendJson(res, 200, result);
   } catch (err) {

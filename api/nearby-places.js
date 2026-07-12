@@ -1,4 +1,5 @@
 const { sendJson, setCors } = require('./_http');
+const allHandler = require('./nearby-places-all');
 
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') {
@@ -7,20 +8,34 @@ module.exports = async function handler(req, res) {
     return res.end();
   }
 
-  const lat = Number(req.query.lat);
-  const lng = Number(req.query.lng);
   const kind = String(req.query.kind || 'cafe');
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return sendJson(res, 400, { error: true, message: '좌표 형식이 올바르지 않습니다.' });
-  }
+  const capture = {
+    statusCode: 200,
+    headers: {},
+    body: '',
+    setHeader: function (k, v) { this.headers[k] = v; },
+    end: function (body) { this.body = body; },
+  };
 
-  const radius = Math.min(Math.max(Number(req.query.radius) || 5, 1), 10);
-  return sendJson(res, 200, {
-    lat: lat,
-    lng: lng,
-    kind: kind,
-    radiusKm: radius,
-    items: [],
-    source: 'curated-client',
-  });
+  await allHandler(req, capture);
+
+  try {
+    const data = JSON.parse(capture.body || '{}');
+    return sendJson(res, 200, {
+      lat: data.lat,
+      lng: data.lng,
+      kind: kind,
+      radiusKm: data.radiusKm,
+      items: (data && data[kind]) ? data[kind] : [],
+      source: data.source || 'osm',
+    });
+  } catch (err) {
+    return sendJson(res, 200, {
+      lat: Number(req.query.lat) || 0,
+      lng: Number(req.query.lng) || 0,
+      kind: kind,
+      radiusKm: 5,
+      items: [],
+    });
+  }
 };

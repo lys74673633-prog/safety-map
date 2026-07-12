@@ -495,6 +495,8 @@ var TransitGuide = (function () {
       state.loading = false;
       if (err && err.code === 'ODSAY_KEY_REQUIRED') {
         state.error = '대중교통 경로를 불러오지 못했습니다. 잠시 후 다시 시도하거나 도보·자동차 모드를 이용해 주세요.';
+      } else if (err && err.code === 'NAVER_TRANSIT_ERROR') {
+        state.error = '대중교통 경로 서버에 잠시 문제가 있습니다. 도보·자동차로 전환하거나 잠시 후 다시 시도해 주세요.';
       } else {
         state.error = (err && err.message) || '경로 검색 중 오류가 발생했습니다.';
       }

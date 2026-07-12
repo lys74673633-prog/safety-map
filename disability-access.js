@@ -1,6 +1,6 @@
 var DisabilityAccess = (function () {
   var NEARBY_RADIUS_KM = 5;
-  var NEARBY_MAX_KM = 8;
+  var NEARBY_MAX_KM = 15;
   var NEARBY_LIMIT = 20;
 
   var state = {
@@ -791,7 +791,7 @@ var DisabilityAccess = (function () {
       lat: item.lat,
       lng: item.lng,
       image: item.image || '',
-      photoUrl: item.photoUrl || photoImgUrl(item.name, item.address || '', item.lat, item.lng, item.image || '', ''),
+      photoUrl: item.image || '',
       photoQuery: item.name,
       source: 'nearby',
       distanceKm: item.distanceKm,
@@ -841,6 +841,17 @@ var DisabilityAccess = (function () {
     var nearby = withDist.filter(function (item) {
       return item.distanceKm <= NEARBY_RADIUS_KM;
     });
+
+    // If too few within 5km, widen to 15km so more destinations still show results.
+    if (nearby.length < 3) {
+      nearby = withDist.filter(function (item) {
+        return item.distanceKm <= 15;
+      });
+    }
+    // Still empty → show nearest curated places nationwide with distance labels.
+    if (!nearby.length) {
+      nearby = withDist.slice(0, NEARBY_LIMIT);
+    }
 
     return nearby.slice(0, NEARBY_LIMIT);
   }
@@ -969,33 +980,28 @@ var DisabilityAccess = (function () {
   }
 
   function photoImgUrl(name, address, lat, lng, directSrc, photoUrl) {
-    if (photoUrl) return apiUrl(photoUrl);
-    if (!name) return '';
-    var params = ['name=' + encodeURIComponent(name)];
-    if (address) params.push('address=' + encodeURIComponent(address));
-    if (lat != null && lng != null && lat !== '' && lng !== '') {
-      params.push('lat=' + encodeURIComponent(lat));
-      params.push('lng=' + encodeURIComponent(lng));
+    // Prefer direct CDN URLs — never wait on the slow/broken photo proxy in production.
+    if (photoUrl && /^https?:\/\//i.test(photoUrl)) return photoUrl;
+    if (directSrc && /^https?:\/\//i.test(directSrc)) return directSrc;
+    if (name && FACILITY_IMAGES[name] && /^https?:\/\//i.test(FACILITY_IMAGES[name])) {
+      return FACILITY_IMAGES[name];
     }
-    if (directSrc) params.push('src=' + encodeURIComponent(directSrc));
-    return apiUrl('/api/place-photo/img?' + params.join('&'));
+    return '';
   }
 
   function renderThumb(item) {
-    var src = item.photoUrl || photoImgUrl(
+    var src = item.image || item.photoUrl || photoImgUrl(
       item.name,
       item.address || '',
       item.lat,
       item.lng,
       item.image || '',
-      ''
+      item.photoUrl || ''
     );
     if (src) {
       return (
-        '<div class="facility-recommend-thumb-empty" data-facility-placeholder>' +
-          '<span class="facility-recommend-thumb-loading-text">…</span>' +
-        '</div>' +
-        '<img src="' + escapeAttr(src) + '" alt="' + escapeHtml(item.name) + ' 사진" loading="lazy" decoding="async" data-facility-thumb />'
+        '<div class="facility-recommend-thumb-empty" data-facility-placeholder hidden></div>' +
+        '<img src="' + escapeAttr(src) + '" alt="' + escapeHtml(item.name) + ' 사진" loading="lazy" decoding="async" data-facility-thumb referrerpolicy="no-referrer" />'
       );
     }
     return (
@@ -1195,37 +1201,27 @@ var DisabilityAccess = (function () {
     var img = row.querySelector('[data-facility-thumb]');
     if (!img) return;
 
-    function attempt(src) {
-      if (!src) return;
-      img.onload = function () {
-        revealPhoto(row);
-      };
-      img.onerror = function () {
-        var retries = parseInt(row.dataset.photoRetry || '0', 10) + 1;
-        row.dataset.photoRetry = String(retries);
-        var name = row.getAttribute('data-place-name') || '';
-        var address = row.getAttribute('data-place-address') || '';
-        var lat = row.getAttribute('data-place-lat');
-        var lng = row.getAttribute('data-place-lng');
-        var directSrc = row.getAttribute('data-place-img') || '';
-        if (retries === 1) {
-          attempt(photoImgUrl(name, address, lat, lng, directSrc, ''));
-          return;
-        }
-        if (retries === 2) {
-          attempt(photoImgUrl(name, address, lat, lng, '', ''));
-        }
-      };
-      img.src = src;
+    function failSoft() {
+      var placeholder = row.querySelector('[data-facility-placeholder]');
+      if (placeholder) {
+        placeholder.removeAttribute('hidden');
+        placeholder.innerHTML = '<span class="facility-recommend-thumb-loading-text">📷</span>';
+      }
+      img.setAttribute('hidden', '');
     }
 
+    img.onload = function () { revealPhoto(row); };
+    img.onerror = failSoft;
+
     var initialSrc = img.getAttribute('src') || '';
-    if (!initialSrc) return;
+    if (!initialSrc) {
+      failSoft();
+      return;
+    }
     if (img.complete && img.naturalWidth > 0) {
       revealPhoto(row);
       return;
     }
-    attempt(initialSrc);
   }
 
   function loadFacilityPhotos(container) {
