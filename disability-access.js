@@ -612,7 +612,6 @@ var DisabilityAccess = (function () {
     }
 
     state.resolvingDestination = true;
-    state.loadingNearby = { cafe: true, food: true, shop: true };
     mount();
 
     var localPoint = null;
@@ -693,7 +692,7 @@ var DisabilityAccess = (function () {
       + '&radius=' + NEARBY_RADIUS_KM
       + '&limit=' + NEARBY_LIMIT);
     return new Promise(function (resolve, reject) {
-      var timer = setTimeout(function () { reject(new Error('nearby-timeout')); }, 60000);
+      var timer = setTimeout(function () { reject(new Error('nearby-timeout')); }, 12000);
       fetch(url)
         .then(function (res) {
           clearTimeout(timer);
@@ -740,11 +739,14 @@ var DisabilityAccess = (function () {
       mount();
       return;
     }
-    state.loadingNearby = { cafe: true, food: true, shop: true };
+
+    // Show curated results immediately; enrich with OSM in the background.
+    state.nearbyRemote = { cafe: [], food: [], shop: [] };
+    state.loadingNearby = { cafe: false, food: false, shop: false };
     state.nearbyError = false;
     state.nearbyPartialError = false;
-    state.nearbyRemote = { cafe: [], food: [], shop: [] };
     mount();
+    scheduleFacilityPhotos();
 
     var point = state.destinationPoint;
     fetchNearbyAll(point)
@@ -756,19 +758,15 @@ var DisabilityAccess = (function () {
         };
         state.loadingNearby = { cafe: false, food: false, shop: false };
         state.nearbyError = false;
-        state.nearbyPartialError = !state.nearbyRemote.cafe.length
-          && !state.nearbyRemote.food.length && !state.nearbyRemote.shop.length;
+        state.nearbyPartialError = false;
         mount();
         scheduleFacilityPhotos();
       })
       .catch(function () {
-        state.nearbyRemote = { cafe: [], food: [], shop: [] };
         state.loadingNearby = { cafe: false, food: false, shop: false };
-        // Keep curated nearby lists when the remote API is unavailable (e.g. cold start / scrape block).
         state.nearbyError = false;
-        state.nearbyPartialError = true;
+        state.nearbyPartialError = false;
         mount();
-        scheduleFacilityPhotos();
       });
   }
 
@@ -784,14 +782,15 @@ var DisabilityAccess = (function () {
 
   function remotePlaceToEntry(item, kindKey) {
     var kindMap = { cafe: '카페', food: '식당', shop: '가게·쇼핑' };
+    var image = item.image || mapThumbUrl(item.lat, item.lng);
     return {
       kind: kindMap[kindKey] || '장소',
       name: item.name,
       address: item.address || '',
       lat: item.lat,
       lng: item.lng,
-      image: item.image || '',
-      photoUrl: item.image || '',
+      image: image,
+      photoUrl: image,
       photoQuery: item.name,
       source: 'nearby',
       distanceKm: item.distanceKm,
@@ -921,27 +920,75 @@ var DisabilityAccess = (function () {
   function geocodeClient(query) {
     var q = String(query || '').trim();
     if (!q) return Promise.resolve(null);
-    var url = 'https://geocoding-api.open-meteo.com/v1/search?name=' +
-      encodeURIComponent(q) + '&count=8&language=ko&format=json';
-    return fetch(url)
-      .then(function (res) { return res.json(); })
-      .then(function (data) {
-        var results = (data && data.results) ? data.results : [];
-        var korea = results.filter(function (r) {
-          return r.country_code === 'KR' ||
-            (r.latitude >= 33 && r.latitude <= 39 && r.longitude >= 124 && r.longitude <= 132);
-        });
-        var hit = korea[0] || results[0];
-        if (!hit) return null;
-        return {
-          name: hit.name || q,
-          address: [hit.admin3, hit.admin2, hit.admin1, hit.country].filter(Boolean).join(' '),
-          lat: hit.latitude,
-          lng: hit.longitude,
-          source: 'open-meteo'
-        };
-      })
-      .catch(function () { return null; });
+
+    function stripDetail(text) {
+      return String(text || '')
+        .replace(/\s*\d+\s*동(\s*\d+\s*호)?/g, ' ')
+        .replace(/\s*\d+\s*호/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function fromPhoton(text) {
+      var url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(text) +
+        '&limit=5&lang=ko&lat=36.5&lon=127.8';
+      return fetch(url)
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          var features = (data && data.features) || [];
+          for (var i = 0; i < features.length; i++) {
+            var f = features[i];
+            var coords = (f.geometry && f.geometry.coordinates) || [];
+            var lng = Number(coords[0]);
+            var lat = Number(coords[1]);
+            if (!(lat >= 33 && lat <= 39 && lng >= 124 && lng <= 132)) continue;
+            var p = f.properties || {};
+            return {
+              name: /[가-힣].*(로|길|동|아파트)/.test(q) ? q : (p.name || p.street || q),
+              address: [p.street, p.housenumber, p.district, p.city, p.state].filter(Boolean).join(' '),
+              lat: lat,
+              lng: lng,
+              source: 'photon'
+            };
+          }
+          return null;
+        })
+        .catch(function () { return null; });
+    }
+
+    function fromOpenMeteo(text) {
+      var url = 'https://geocoding-api.open-meteo.com/v1/search?name=' +
+        encodeURIComponent(text) + '&count=8&language=ko&format=json';
+      return fetch(url)
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          var results = (data && data.results) ? data.results : [];
+          var korea = results.filter(function (r) {
+            return r.country_code === 'KR' ||
+              (r.latitude >= 33 && r.latitude <= 39 && r.longitude >= 124 && r.longitude <= 132);
+          });
+          var hit = korea[0] || results[0];
+          if (!hit) return null;
+          return {
+            name: /[가-힣].*(로|길|동|아파트)/.test(q) ? q : (hit.name || q),
+            address: [hit.admin3, hit.admin2, hit.admin1, hit.country].filter(Boolean).join(' '),
+            lat: hit.latitude,
+            lng: hit.longitude,
+            source: 'open-meteo'
+          };
+        })
+        .catch(function () { return null; });
+    }
+
+    var stripped = stripDetail(q);
+    return fromPhoton(q).then(function (point) {
+      if (point) return point;
+      if (stripped && stripped !== q) return fromPhoton(stripped);
+      return null;
+    }).then(function (point) {
+      if (point) return point;
+      return fromOpenMeteo(stripped || q);
+    });
   }
 
   function apiUrl(path) {
@@ -959,7 +1006,7 @@ var DisabilityAccess = (function () {
   }
 
   function resolveEntry(entry) {
-    var image = resolveImage(entry);
+    var image = resolveImage(entry) || mapThumbUrl(entry.lat, entry.lng);
     return {
       kind: entry.kind,
       name: entry.name,
@@ -967,7 +1014,7 @@ var DisabilityAccess = (function () {
       lat: entry.lat,
       lng: entry.lng,
       image: image,
-      photoUrl: photoImgUrl(entry.name, entry.address || '', entry.lat, entry.lng, image, ''),
+      photoUrl: image,
       photoQuery: entry.photoQuery || '',
       audienceFor: entry.audienceFor,
       note: entry.note,
@@ -979,18 +1026,32 @@ var DisabilityAccess = (function () {
     return KIND_CLASS[kind] || 'hub-tag-traffic';
   }
 
+  function mapThumbUrl(lat, lng) {
+    if (lat == null || lng == null || lat === '' || lng === '') return '';
+    return 'https://staticmap.openstreetmap.de/staticmap.php?center=' + lat + ',' + lng +
+      '&zoom=16&size=320x200&maptype=mapnik&markers=' + lat + ',' + lng + ',red-pushpin';
+  }
+
+  function cleanImageUrl(url) {
+    if (!url) return '';
+    return String(url)
+      .replace(/&amp;/g, '&')
+      .replace(/\\u0026/g, '&')
+      .trim();
+  }
+
   function photoImgUrl(name, address, lat, lng, directSrc, photoUrl) {
-    // Prefer direct CDN URLs — never wait on the slow/broken photo proxy in production.
-    if (photoUrl && /^https?:\/\//i.test(photoUrl)) return photoUrl;
-    if (directSrc && /^https?:\/\//i.test(directSrc)) return directSrc;
-    if (name && FACILITY_IMAGES[name] && /^https?:\/\//i.test(FACILITY_IMAGES[name])) {
-      return FACILITY_IMAGES[name];
+    var direct = cleanImageUrl(photoUrl) || cleanImageUrl(directSrc);
+    if (direct && /^https?:\/\//i.test(direct)) return direct;
+    if (name && FACILITY_IMAGES[name]) {
+      var mapped = cleanImageUrl(FACILITY_IMAGES[name]);
+      if (mapped && /^https?:\/\//i.test(mapped)) return mapped;
     }
-    return '';
+    return mapThumbUrl(lat, lng);
   }
 
   function renderThumb(item) {
-    var src = item.image || item.photoUrl || photoImgUrl(
+    var src = photoImgUrl(
       item.name,
       item.address || '',
       item.lat,
@@ -1202,6 +1263,16 @@ var DisabilityAccess = (function () {
     if (!img) return;
 
     function failSoft() {
+      var lat = row.getAttribute('data-place-lat');
+      var lng = row.getAttribute('data-place-lng');
+      var mapSrc = mapThumbUrl(lat, lng);
+      var retries = parseInt(row.dataset.photoRetry || '0', 10);
+      if (mapSrc && retries < 1 && img.getAttribute('src') !== mapSrc) {
+        row.dataset.photoRetry = '1';
+        img.removeAttribute('hidden');
+        img.src = mapSrc;
+        return;
+      }
       var placeholder = row.querySelector('[data-facility-placeholder]');
       if (placeholder) {
         placeholder.removeAttribute('hidden');
@@ -1220,7 +1291,6 @@ var DisabilityAccess = (function () {
     }
     if (img.complete && img.naturalWidth > 0) {
       revealPhoto(row);
-      return;
     }
   }
 

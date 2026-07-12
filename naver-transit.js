@@ -192,26 +192,45 @@ var NaverTransit = (function () {
     var q = String(query || '').trim();
     if (!q) return Promise.resolve(null);
 
-    function geocodeClient() {
-      var url = 'https://geocoding-api.open-meteo.com/v1/search?name=' +
-        encodeURIComponent(q) + '&count=8&language=ko&format=json';
+    function stripDetail(text) {
+      return String(text || '')
+        .replace(/\s*\d+\s*동(\s*\d+\s*호)?/g, ' ')
+        .replace(/\s*\d+\s*호/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
+    function keepAddressName(point) {
+      if (!point) return null;
+      if (/[가-힣].*(로|길|동|아파트|빌라|단지)/.test(q)) {
+        return Object.assign({}, point, { name: q });
+      }
+      return point;
+    }
+
+    function fromPhoton(text) {
+      var url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(text) +
+        '&limit=5&lang=ko&lat=36.5&lon=127.8';
       return fetch(url)
         .then(function (res) { return res.json(); })
         .then(function (data) {
-          var results = (data && data.results) ? data.results : [];
-          var korea = results.filter(function (r) {
-            return r.country_code === 'KR' ||
-              (r.latitude >= 33 && r.latitude <= 39 && r.longitude >= 124 && r.longitude <= 132);
-          });
-          var hit = korea[0] || results[0];
-          if (!hit) return null;
-          return {
-            name: hit.name || q,
-            address: [hit.admin3, hit.admin2, hit.admin1, hit.country].filter(Boolean).join(' '),
-            lat: hit.latitude,
-            lng: hit.longitude,
-            source: 'open-meteo'
-          };
+          var features = (data && data.features) || [];
+          for (var i = 0; i < features.length; i++) {
+            var f = features[i];
+            var coords = (f.geometry && f.geometry.coordinates) || [];
+            var lng = Number(coords[0]);
+            var lat = Number(coords[1]);
+            if (!(lat >= 33 && lat <= 39 && lng >= 124 && lng <= 132)) continue;
+            var p = f.properties || {};
+            return {
+              name: p.name || p.street || text,
+              address: [p.street, p.housenumber, p.district, p.city, p.state].filter(Boolean).join(' '),
+              lat: lat,
+              lng: lng,
+              source: 'photon'
+            };
+          }
+          return null;
         })
         .catch(function () { return null; });
     }
@@ -222,10 +241,20 @@ var NaverTransit = (function () {
         if (!res.ok || ct.indexOf('application/json') < 0) throw new Error('geocode');
         return res.json().then(function (data) {
           if (!data || !data.point) return null;
-          return data.point;
+          return keepAddressName(data.point);
         });
       })
-      .catch(function () { return geocodeClient(); });
+      .catch(function () {
+        var stripped = stripDetail(q);
+        return fromPhoton(q).then(function (point) {
+          if (point) return keepAddressName(point);
+          if (stripped && stripped !== q) return fromPhoton(stripped).then(keepAddressName);
+          return null;
+        }).then(function (point) {
+          if (point) return point;
+          return geocodeNominatim(q).then(keepAddressName);
+        });
+      });
   }
 
   function mergeResults(local, remote, limit) {

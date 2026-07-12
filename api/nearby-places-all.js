@@ -12,46 +12,58 @@ function haversineKm(aLat, aLng, bLat, bLng) {
 
 function kindFromTags(tags) {
   if (!tags) return null;
-  if (tags.amenity === 'cafe' || tags.amenity === 'ice_cream' || tags.cuisine === 'coffee_shop') return 'cafe';
-  if (
-    tags.amenity === 'restaurant' ||
-    tags.amenity === 'fast_food' ||
-    tags.amenity === 'food_court' ||
-    tags.amenity === 'cafe'
-  ) {
-    if (tags.amenity === 'cafe') return 'cafe';
+  if (tags.amenity === 'cafe' || tags.amenity === 'ice_cream') return 'cafe';
+  if (tags.amenity === 'restaurant' || tags.amenity === 'fast_food' || tags.amenity === 'food_court') {
     return 'food';
   }
-  if (tags.shop || tags.amenity === 'marketplace') return 'shop';
+  if (tags.shop) return 'shop';
   return null;
 }
 
 function nameFromTags(tags) {
-  return (tags && (tags.name || tags['name:ko'] || tags.brand)) || '';
+  return (tags && (tags['name:ko'] || tags.name || tags.brand)) || '';
+}
+
+function mapThumb(lat, lng) {
+  return (
+    'https://staticmap.openstreetmap.de/staticmap.php?center=' +
+    lat +
+    ',' +
+    lng +
+    '&zoom=16&size=320x200&maptype=mapnik&markers=' +
+    lat +
+    ',' +
+    lng +
+    ',red-pushpin'
+  );
 }
 
 async function fetchOverpass(lat, lng, radiusM) {
+  // Keep the query small/fast for Vercel timeouts.
   const query =
-    '[out:json][timeout:20];(' +
+    '[out:json][timeout:8];(' +
     'node["amenity"="cafe"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
     'node["amenity"="restaurant"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
     'node["amenity"="fast_food"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
-    'node["amenity"="food_court"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
-    'node["shop"~"mall|department_store|supermarket|convenience|clothes|bakery"](around:' +
-    radiusM + ',' + lat + ',' + lng + ');' +
-    'way["amenity"="cafe"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
-    'way["amenity"="restaurant"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
-    'way["shop"~"mall|department_store|supermarket"](around:' + radiusM + ',' + lat + ',' + lng + ');' +
-    ');out center 60;';
+    'node["shop"~"mall|department_store|supermarket|convenience"](around:' +
+    radiusM +
+    ',' +
+    lat +
+    ',' +
+    lng +
+    ');' +
+    ');out body 40;';
 
   const endpoints = [
-    'https://overpass-api.de/api/interpreter',
     'https://overpass.kumi.systems/api/interpreter',
+    'https://overpass-api.de/api/interpreter',
   ];
 
   let lastErr;
   for (const endpoint of endpoints) {
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(function () { controller.abort(); }, 9000);
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
@@ -59,7 +71,9 @@ async function fetchOverpass(lat, lng, radiusM) {
           'User-Agent': 'Oasi5/1.0',
         },
         body: 'data=' + encodeURIComponent(query),
+        signal: controller.signal,
       });
+      clearTimeout(timer);
       if (!res.ok) throw new Error('overpass ' + res.status);
       return await res.json();
     } catch (err) {
@@ -80,8 +94,8 @@ function collectItems(data, lat, lng, kind, radiusKm, limit) {
     if (itemKind !== kind) return;
     const name = nameFromTags(tags);
     if (!name) return;
-    const itemLat = el.lat != null ? el.lat : (el.center && el.center.lat);
-    const itemLng = el.lon != null ? el.lon : (el.center && el.center.lon);
+    const itemLat = el.lat;
+    const itemLng = el.lon;
     if (itemLat == null || itemLng == null) return;
     const distanceKm = haversineKm(lat, lng, itemLat, itemLng);
     if (distanceKm > radiusKm) return;
@@ -90,13 +104,13 @@ function collectItems(data, lat, lng, kind, radiusKm, limit) {
     seen[key] = true;
     items.push({
       name: name,
-      address: [tags['addr:full'], tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(' ') || '',
+      address: [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(' ') || '',
       lat: itemLat,
       lng: itemLng,
       distanceKm: Math.round(distanceKm * 100) / 100,
       kind: kind,
       source: 'osm',
-      image: '',
+      image: mapThumb(itemLat, itemLng),
     });
   });
 
@@ -120,8 +134,8 @@ module.exports = async function handler(req, res) {
     return sendJson(res, 400, { error: true, message: '한국 내 좌표만 지원합니다.' });
   }
 
-  const radius = Math.min(Math.max(Number(req.query.radius) || 5, 1), 10);
-  const limit = Math.min(Math.max(Number(req.query.limit) || 20, 5), 25);
+  const radius = Math.min(Math.max(Number(req.query.radius) || 5, 1), 8);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 12, 5), 20);
   const radiusM = Math.round(radius * 1000);
 
   try {
