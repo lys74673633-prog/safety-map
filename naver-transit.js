@@ -192,14 +192,40 @@ var NaverTransit = (function () {
     var q = String(query || '').trim();
     if (!q) return Promise.resolve(null);
 
+    function geocodeClient() {
+      var url = 'https://geocoding-api.open-meteo.com/v1/search?name=' +
+        encodeURIComponent(q) + '&count=8&language=ko&format=json';
+      return fetch(url)
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          var results = (data && data.results) ? data.results : [];
+          var korea = results.filter(function (r) {
+            return r.country_code === 'KR' ||
+              (r.latitude >= 33 && r.latitude <= 39 && r.longitude >= 124 && r.longitude <= 132);
+          });
+          var hit = korea[0] || results[0];
+          if (!hit) return null;
+          return {
+            name: hit.name || q,
+            address: [hit.admin3, hit.admin2, hit.admin1, hit.country].filter(Boolean).join(' '),
+            lat: hit.latitude,
+            lng: hit.longitude,
+            source: 'open-meteo'
+          };
+        })
+        .catch(function () { return null; });
+    }
+
     return fetch(geocodeUrl + '?q=' + encodeURIComponent(q))
       .then(function (res) {
+        var ct = (res.headers.get('content-type') || '');
+        if (!res.ok || ct.indexOf('application/json') < 0) throw new Error('geocode');
         return res.json().then(function (data) {
-          if (!res.ok || !data || !data.point) return null;
+          if (!data || !data.point) return null;
           return data.point;
         });
       })
-      .catch(function () { return null; });
+      .catch(function () { return geocodeClient(); });
   }
 
   function mergeResults(local, remote, limit) {

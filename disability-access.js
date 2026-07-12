@@ -643,24 +643,30 @@ var DisabilityAccess = (function () {
     }
 
     fetch(apiUrl('/api/geocode?q=' + encodeURIComponent(trimmed)))
-      .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+      .then(function (res) {
+        var ct = (res.headers.get('content-type') || '');
+        if (!res.ok || ct.indexOf('application/json') < 0) throw new Error('geocode-api');
+        return res.json().then(function (data) { return { ok: true, data: data }; });
+      })
       .then(function (result) {
-        if (result.ok && result.data && result.data.point) {
+        if (result.data && result.data.point) {
           finishResolve(result.data.point);
           return;
         }
-        if (typeof NaverTransit === 'undefined') {
-          finishResolve(null);
-          return;
-        }
-        return NaverTransit.resolvePoint(trimmed).then(finishResolve);
+        throw new Error('geocode-empty');
       })
       .catch(function () {
-        if (typeof NaverTransit === 'undefined') {
-          finishResolve(null);
-          return;
-        }
-        NaverTransit.resolvePoint(trimmed).then(finishResolve).catch(function () { finishResolve(null); });
+        return geocodeClient(trimmed).then(function (point) {
+          if (point) {
+            finishResolve(point);
+            return;
+          }
+          if (typeof NaverTransit === 'undefined') {
+            finishResolve(null);
+            return;
+          }
+          return NaverTransit.resolvePoint(trimmed).then(finishResolve);
+        }).catch(function () { finishResolve(null); });
       });
   }
 
@@ -691,7 +697,8 @@ var DisabilityAccess = (function () {
       fetch(url)
         .then(function (res) {
           clearTimeout(timer);
-          if (!res.ok) throw new Error('nearby-api');
+          var ct = (res.headers.get('content-type') || '');
+          if (!res.ok || ct.indexOf('application/json') < 0) throw new Error('nearby-api');
           return res.json();
         })
         .then(resolve)
@@ -898,6 +905,32 @@ var DisabilityAccess = (function () {
 
   function escapeAttr(str) {
     return escapeHtml(str);
+  }
+
+  function geocodeClient(query) {
+    var q = String(query || '').trim();
+    if (!q) return Promise.resolve(null);
+    var url = 'https://geocoding-api.open-meteo.com/v1/search?name=' +
+      encodeURIComponent(q) + '&count=8&language=ko&format=json';
+    return fetch(url)
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        var results = (data && data.results) ? data.results : [];
+        var korea = results.filter(function (r) {
+          return r.country_code === 'KR' ||
+            (r.latitude >= 33 && r.latitude <= 39 && r.longitude >= 124 && r.longitude <= 132);
+        });
+        var hit = korea[0] || results[0];
+        if (!hit) return null;
+        return {
+          name: hit.name || q,
+          address: [hit.admin3, hit.admin2, hit.admin1, hit.country].filter(Boolean).join(' '),
+          lat: hit.latitude,
+          lng: hit.longitude,
+          source: 'open-meteo'
+        };
+      })
+      .catch(function () { return null; });
   }
 
   function apiUrl(path) {

@@ -70,6 +70,13 @@ var TransitRoutes = (function () {
 
     return fetch(url)
       .then(function (res) {
+        var ct = (res.headers.get('content-type') || '');
+        if (!res.ok || ct.indexOf('application/json') < 0) {
+          if (mode === 'walk' || mode === 'car' || mode === 'bicycle') {
+            return fetchOsrmClient(from, to, mode);
+          }
+          throw new Error('경로를 불러오지 못했습니다.');
+        }
         return res.json().then(function (data) {
           if (!res.ok) {
             if ((mode === 'walk' || mode === 'car' || mode === 'bicycle') && (res.status === 404 || data.code === 'ODSAY_KEY_REQUIRED')) {
@@ -84,7 +91,7 @@ var TransitRoutes = (function () {
         });
       })
       .catch(function (err) {
-        if ((mode === 'walk' || mode === 'car' || mode === 'bicycle') && err && err.name === 'TypeError') {
+        if (mode === 'walk' || mode === 'car' || mode === 'bicycle') {
           return fetchOsrmClient(from, to, mode);
         }
         throw err;

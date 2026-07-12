@@ -1,15 +1,5 @@
 {
   "version": 2,
-  "functions": {
-    "api/geocode.py": { "maxDuration": 10 },
-    "api/nearby-places.py": { "maxDuration": 10 },
-    "api/nearby-places-all.py": { "maxDuration": 10 },
-    "api/transit-search.py": { "maxDuration": 10 },
-    "api/transit-route.py": { "maxDuration": 10 },
-    "api/place-photo.py": { "maxDuration": 10 },
-    "api/place-photo-img.py": { "maxDuration": 10 },
-    "api/kric-station-mobility.py": { "maxDuration": 10 }
-  },
   "rewrites": [
     { "source": "/api/place-photo/img", "destination": "/api/place-photo-img" },
     { "source": "/api/kric/station-mobility", "destination": "/api/kric-station-mobility" }

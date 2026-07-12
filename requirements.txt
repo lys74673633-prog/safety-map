@@ -1,1 +1,1 @@
-# Stdlib-only API (urllib). No third-party packages required for Vercel Python runtime.
+# Local Python server only (py api/serve.py). Vercel uses Node serverless under /api/*.js.
