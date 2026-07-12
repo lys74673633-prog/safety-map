@@ -8,8 +8,8 @@ module.exports = async function handler(req, res) {
     return res.end();
   }
 
-  const q = String((req.query && req.query.q) || '').trim();
-  const limit = Math.min(Number(req.query.limit) || 8, 15);
+  const q = String((req.query && (req.query.q || req.query.query)) || '').trim();
+  const limit = Math.min(Number(req.query.limit) || 20, 30);
   if (!q) return sendJson(res, 200, { query: q, items: [] });
 
   try {

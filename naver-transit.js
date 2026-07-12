@@ -287,38 +287,13 @@ var NaverTransit = (function () {
     var trimmed = String(query || '').trim();
     if (!trimmed) return Promise.resolve(null);
 
-    // Region + apartment / address: geocode first so landmark name collisions don't win.
-    if (looksLikeHomeQuery(trimmed)) {
+    // Prefer Naver place search (same source as map.naver.com).
+    return searchRemote(trimmed, 6).then(function (remote) {
+      var best = (remote || []).find(function (p) { return p.lat && p.lng; });
+      if (best) return Object.assign({}, best, { name: trimmed });
       return geocodeRemote(trimmed).then(function (geo) {
-        if (geo && geo.lat && geo.lng) return geo;
-        return searchRemote(trimmed, 6).then(function (remote) {
-          var best = (remote || []).find(function (p) { return p.lat && p.lng; });
-          if (best) return Object.assign({}, best, { name: trimmed });
-          return geocodeNominatim(trimmed);
-        });
-      });
-    }
-
-    var local = searchLocal(trimmed, 5);
-    var exact = local.find(function (p) { return normalize(p.name) === normalize(trimmed); });
-    if (exact && exact.lat && exact.lng) {
-      return Promise.resolve(Object.assign({}, exact));
-    }
-
-    return Promise.all([
-      searchRemote(trimmed, 6),
-      geocodeRemote(trimmed)
-    ]).then(function (results) {
-      var remote = results[0] || [];
-      var geo = results[1];
-      var merged = mergeResults(local, remote, 8);
-      if (merged.length) {
-        var best = merged.find(function (p) { return normalize(p.name) === normalize(trimmed); }) || merged[0];
-        if (best.lat && best.lng) return Object.assign({}, best);
-      }
-      if (geo && geo.lat && geo.lng) return geo;
-      return geocodeNominatim(trimmed).then(function (nom) {
-        return nom || null;
+        if (geo && geo.lat && geo.lng) return Object.assign({}, geo, { name: trimmed });
+        return geocodeNominatim(trimmed);
       });
     });
   }

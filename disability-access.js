@@ -629,19 +629,11 @@ var DisabilityAccess = (function () {
       return;
     }
 
-    // Always resolve the typed destination to coordinates, then recommend nearby places.
-    // Do NOT rely on curated RECOMMENDATIONS name matches — that only covers a fixed list.
     state.textHits = [];
     state.resolvingDestination = true;
     state.nearbyRemote = { cafe: [], food: [], shop: [] };
     state.loadingNearby = { cafe: true, food: true, shop: true };
     mount();
-
-    if (state.destinationPoint && state.destinationPoint.name === trimmed && state.destinationPoint.lat) {
-      state.resolvingDestination = false;
-      refreshNearbyLists();
-      return;
-    }
 
     function finishResolve(point) {
       state.resolvingDestination = false;
@@ -655,45 +647,34 @@ var DisabilityAccess = (function () {
       mount();
     }
 
-    function geocodeNow() {
-      return fetch(apiUrl('/api/geocode?q=' + encodeURIComponent(trimmed)))
-        .then(function (res) {
-          var ct = (res.headers.get('content-type') || '');
-          if (!res.ok || ct.indexOf('application/json') < 0) throw new Error('geocode-api');
-          return res.json();
-        })
-        .then(function (data) {
-          if (data && data.point && data.point.lat) return data.point;
-          throw new Error('geocode-empty');
-        });
-    }
-
-    function searchPlaceNow() {
-      return fetch(apiUrl('/api/transit-search?q=' + encodeURIComponent(trimmed) + '&limit=5'))
-        .then(function (res) {
-          if (!res.ok) throw new Error('search');
-          return res.json();
-        })
-        .then(function (data) {
-          var items = (data && data.items) || [];
-          var best = items.find(function (p) { return p.lat && p.lng; });
-          return best || null;
-        })
-        .catch(function () { return null; });
-    }
-
-    // Geocode + place search in parallel — first valid coords win.
-    Promise.all([geocodeNow().catch(function () { return null; }), searchPlaceNow()])
-      .then(function (results) {
-        var point = results[0] || results[1];
-        if (point) return finishResolve(point);
-        if (typeof NaverTransit !== 'undefined') {
-          return NaverTransit.resolvePoint(trimmed).then(finishResolve);
-        }
-        finishResolve(null);
+    // 네이버 장소검색 → 좌표 → 주변 카페·식당·쇼핑
+    fetch(apiUrl('/api/place-search?q=' + encodeURIComponent(trimmed) + '&limit=8'))
+      .then(function (res) {
+        if (!res.ok) throw new Error('place-search');
+        return res.json();
+      })
+      .then(function (data) {
+        var items = (data && data.items) || [];
+        var best = items.find(function (p) { return p.lat && p.lng; });
+        if (best) return finishResolve(best);
+        return fetch(apiUrl('/api/geocode?q=' + encodeURIComponent(trimmed)))
+          .then(function (res) {
+            if (!res.ok) throw new Error('geocode');
+            return res.json();
+          })
+          .then(function (geo) {
+            if (geo && geo.point && geo.point.lat) return finishResolve(geo.point);
+            finishResolve(null);
+          });
       })
       .catch(function () {
-        finishResolve(null);
+        fetch(apiUrl('/api/geocode?q=' + encodeURIComponent(trimmed)))
+          .then(function (res) { return res.json(); })
+          .then(function (geo) {
+            if (geo && geo.point && geo.point.lat) finishResolve(geo.point);
+            else finishResolve(null);
+          })
+          .catch(function () { finishResolve(null); });
       });
   }
 
@@ -809,7 +790,6 @@ var DisabilityAccess = (function () {
 
   function remotePlaceToEntry(item, kindKey) {
     var kindMap = { cafe: '카페', food: '식당', shop: '가게·쇼핑' };
-    // Fast path: map tile first. Shop photos upgrade later in the background.
     var image = item.image || mapThumbUrl(item.lat, item.lng) || '';
     return {
       kind: kindMap[kindKey] || '장소',
@@ -820,9 +800,9 @@ var DisabilityAccess = (function () {
       image: image,
       photoUrl: image,
       photoQuery: item.name,
-      source: 'nearby',
+      source: item.source === 'naver' ? 'naver' : 'nearby',
       distanceKm: item.distanceKm,
-      upgradePhoto: true,
+      upgradePhoto: !item.image,
       audienceFor: '휠체어·유모차·보행 보조 — 주변 검색',
       note: '목적지에서 ' + formatDistance(item.distanceKm) + ' 거리입니다. 입장 전 계단·통로 여부를 확인하세요.'
     };
@@ -910,20 +890,19 @@ var DisabilityAccess = (function () {
         '<strong>' + escapeHtml(state.destinationPoint.name || state.destination) + '</strong> 주변 ' +
         NEARBY_RADIUS_KM + 'km 이내 시설을 가까운 순으로 보여줍니다.</p>';
     } else if (state.destination.trim()) {
-      status = '<p class="access-dest-status is-warning">위치를 찾지 못했습니다. 연관 검색어를 선택하거나 검색어를 바꿔 다시 검색해 주세요.</p>';
+      status = '<p class="access-dest-status is-warning">위치를 찾지 못했습니다. 장소명을 바꿔 다시 검색해 주세요.</p>';
     } else {
-      status = '<p class="access-dest-status">목적지를 입력하면 <strong>예상 검색어</strong>가 뜹니다. 선택하거나 <strong>검색(돋보기)</strong> 버튼으로 찾을 수 있습니다.</p>';
+      status = '<p class="access-dest-status">가고 싶은 장소를 입력한 뒤 검색하면 주변 카페·식당·쇼핑을 추천합니다.</p>';
     }
 
     return (
       '<section class="hub-section access-dest-panel">' +
         '<h2>가게 될 곳</h2>' +
         '<div class="access-dest-search-row">' +
-          '<div class="access-dest-field transit-field-suggest">' +
+          '<div class="access-dest-field">' +
             '<input type="text" id="access-dest" class="transit-input access-dest-input" ' +
-              'placeholder="가고 싶은 장소 (예: 부산역, 해운대)" ' +
+              'placeholder="가고 싶은 장소" ' +
               'value="' + escapeHtml(state.destination) + '" autocomplete="off" aria-label="가게 될 곳" />' +
-            '<div id="access-dest-suggest">' + renderSuggestions(state.suggestDest) + '</div>' +
           '</div>' +
           renderSearchButton() +
         '</div>' +
@@ -1110,8 +1089,8 @@ var DisabilityAccess = (function () {
           '<div class="facility-recommend-body">' +
             '<div class="facility-recommend-tags">' +
               '<span class="hub-tag ' + tagClass + '">' + escapeHtml(item.kind) + '</span>' +
-              (item.source === 'nearby' || item.source === 'oasi5-curated'
-                ? '<span class="hub-tag hub-tag-traffic">' + (item.source === 'nearby' ? '주변검색' : 'Oasi5') + '</span>'
+              (item.source === 'nearby' || item.source === 'naver' || item.source === 'oasi5-curated'
+                ? '<span class="hub-tag hub-tag-traffic">' + (item.source === 'naver' ? '네이버' : (item.source === 'nearby' ? '주변검색' : 'Oasi5')) + '</span>'
                 : '') +
               (item.distanceKm != null
                 ? '<span class="facility-recommend-distance">' + escapeHtml(formatDistance(item.distanceKm)) + '</span>'
@@ -1171,7 +1150,6 @@ var DisabilityAccess = (function () {
         '<div class="hub-hero">' +
           '<h1 class="hub-page-title">' +
             '<span class="hub-page-brand">Oasi<span class="brand-five">5</span></span>' +
-            '<span class="hub-page-en">시설 추천</span>' +
           '</h1>' +
         '</div>' +
         renderDestinationPanel() +
@@ -1313,7 +1291,6 @@ var DisabilityAccess = (function () {
     var searchBtn = container.querySelector('#access-dest-search');
     if (input && !input.dataset.bound) {
       input.dataset.bound = '1';
-      var timer;
       input.addEventListener('input', function () {
         state.destination = input.value.trim();
         if (state.destinationPoint && state.destinationPoint.name !== state.destination) {
@@ -1321,22 +1298,10 @@ var DisabilityAccess = (function () {
           resetNearbyState();
         }
         toggleSearchButton(container);
-        clearTimeout(timer);
-        timer = setTimeout(function () {
-          updateSuggest(state.destination, container);
-        }, 200);
-      });
-      input.addEventListener('focus', function () {
-        var value = input.value.trim();
-        if (value) updateSuggest(value, container);
       });
       input.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
           e.preventDefault();
-          if (state.suggestDest.length) {
-            applyDestination(state.suggestDest[0]);
-            return;
-          }
           submitDestinationSearch();
         }
       });
@@ -1346,28 +1311,6 @@ var DisabilityAccess = (function () {
       searchBtn.dataset.bound = '1';
       searchBtn.addEventListener('click', function () {
         submitDestinationSearch();
-      });
-    }
-
-    if (!container.dataset.accessSuggestBound) {
-      container.dataset.accessSuggestBound = '1';
-      container.addEventListener('mousedown', function (e) {
-        var suggest = e.target.closest('.access-suggest-item');
-        if (!suggest) return;
-        e.preventDefault();
-        var item = parsePlaceData(suggest);
-        if (item) applyDestination(item);
-      });
-    }
-
-    if (!docClickBound) {
-      docClickBound = true;
-      document.addEventListener('click', function (e) {
-        var root = document.getElementById('view-access');
-        if (!root || root.contains(e.target)) return;
-        state.suggestDest = [];
-        var box = root.querySelector('#access-dest-suggest');
-        if (box) box.innerHTML = '';
       });
     }
   }

@@ -1,74 +1,8 @@
 const { sendJson, setCors } = require('./_http');
+const { searchPlaces } = require('./_naver-places');
 
 function inKorea(lat, lng) {
   return lat >= 33 && lat <= 39 && lng >= 124 && lng <= 132;
-}
-
-function unique(list) {
-  const out = [];
-  const seen = {};
-  list.forEach(function (v) {
-    if (!v || seen[v]) return;
-    seen[v] = true;
-    out.push(v);
-  });
-  return out;
-}
-
-function stripAptNoise(q) {
-  return String(q || '')
-    .replace(/\s*\d+\s*동(\s*\d+\s*호)?/g, ' ')
-    .replace(/\s*\d+\s*호/g, ' ')
-    .replace(/\s*[A-Za-z]?\d+\s*층/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function queryVariants(q) {
-  const base = stripAptNoise(q);
-  const variants = [base, base + ' 대한민국', base + ', Korea'];
-
-  const parts = base.split(/\s+/).filter(Boolean);
-  if (parts.length >= 2) {
-    variants.push(parts.slice().reverse().join(' '));
-    variants.push(parts.slice().reverse().join(' ') + ' 대한민국');
-  }
-
-  if (/아파트|APT|apt/i.test(base) === false && /[가-힣]{2,}/.test(base)) {
-    const maybeApt = parts[parts.length - 1];
-    if (maybeApt && maybeApt.length >= 2) {
-      variants.push(base + ' 아파트');
-    }
-  }
-
-  // Landmark-style short names: try with city suffixes less; prefer plain name first.
-  return unique(variants).slice(0, 5);
-}
-
-function toPoint(row, q, source) {
-  const lat = Number(row.lat != null ? row.lat : row.latitude);
-  const lng = Number(row.lon != null ? row.lon : row.lng != null ? row.lng : row.longitude);
-  if (!inKorea(lat, lng)) return null;
-  const addr = row.address || {};
-  const address = [
-    addr.road,
-    addr.neighbourhood || addr.suburb || addr.quarter,
-    addr.borough || addr.city_district,
-    addr.city || addr.town || addr.county || addr.village,
-    addr.state,
-    row.admin3,
-    row.admin2,
-    row.admin1,
-  ]
-    .filter(Boolean)
-    .join(' ');
-  return {
-    name: row.name || String(row.display_name || q).split(',')[0].trim() || q,
-    address: address || row.display_name || '',
-    lat: lat,
-    lng: lng,
-    source: source,
-  };
 }
 
 async function nominatimSearch(q) {
@@ -76,45 +10,33 @@ async function nominatimSearch(q) {
     q: q,
     format: 'jsonv2',
     addressdetails: '1',
-    limit: '5',
+    limit: '3',
     countrycodes: 'kr',
     'accept-language': 'ko',
   });
-  const res = await fetch('https://nominatim.openstreetmap.org/search?' + params.toString(), {
-    headers: {
-      'User-Agent': 'Oasi5/1.0 (safety-map geocoder)',
-      Accept: 'application/json',
-    },
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  if (!Array.isArray(data) || !data.length) return null;
-
-  for (const row of data) {
-    const point = toPoint(row, q, 'nominatim');
-    if (point) return point;
-  }
-  return null;
-}
-
-async function openMeteoSearch(q) {
-  const params = new URLSearchParams({
-    name: q,
-    count: '5',
-    language: 'ko',
-    format: 'json',
-    countryCode: 'KR',
-  });
-  const res = await fetch('https://geocoding-api.open-meteo.com/v1/search?' + params.toString(), {
-    headers: { Accept: 'application/json', 'User-Agent': 'Oasi5/1.0' },
-  });
-  if (!res.ok) return null;
-  const data = await res.json();
-  const results = Array.isArray(data.results) ? data.results : [];
-  for (const row of results) {
-    const point = toPoint(row, q, 'open-meteo');
-    if (point) return point;
-  }
+  try {
+    const res = await fetch('https://nominatim.openstreetmap.org/search?' + params.toString(), {
+      headers: {
+        'User-Agent': 'Oasi5/1.0 (safety-map geocoder)',
+        Accept: 'application/json',
+      },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!Array.isArray(data) || !data.length) return null;
+    for (const row of data) {
+      const lat = Number(row.lat);
+      const lng = Number(row.lon);
+      if (!inKorea(lat, lng)) continue;
+      return {
+        name: row.name || String(row.display_name || q).split(',')[0].trim() || q,
+        address: row.display_name || '',
+        lat: lat,
+        lng: lng,
+        source: 'nominatim',
+      };
+    }
+  } catch (err) {}
   return null;
 }
 
@@ -131,29 +53,21 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    let point = null;
-    const variants = queryVariants(q);
-    for (const variant of variants) {
-      point = await nominatimSearch(variant);
-      if (point) break;
-    }
-    if (!point) {
-      point = await openMeteoSearch(variants[0]);
-    }
+    // Naver place search first — same source as map.naver.com place list.
+    const naver = await searchPlaces(q, 5);
+    let point = naver[0] || null;
+    if (!point) point = await nominatimSearch(q + ' 대한민국');
+    if (!point) point = await nominatimSearch(q);
 
     if (!point) {
       return sendJson(res, 404, {
         error: true,
-        message: '위치를 찾지 못했습니다. "지역명 + 아파트명"처럼 입력해 보세요. 예: 해운대 경동아파트',
+        message: '위치를 찾지 못했습니다. 장소명이나 주소를 다시 입력해 주세요.',
         query: q,
       });
     }
 
-    // Keep user-friendly label for apartment/region queries.
-    if (/아파트|빌라|오피스텔|단지|[시군구]|동|읍|면|리/.test(q) || /\s/.test(q)) {
-      point = Object.assign({}, point, { name: q });
-    }
-
+    point = Object.assign({}, point, { name: q });
     return sendJson(res, 200, { query: q, point: point });
   } catch (err) {
     return sendJson(res, 502, { error: true, message: '지오코딩에 실패했습니다.', query: q });

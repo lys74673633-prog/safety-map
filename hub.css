@@ -1576,6 +1576,23 @@
   text-decoration: underline;
 }
 
+.transit-kakao-embed-wrap {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface);
+  min-height: 640px;
+}
+
+.transit-kakao-embed {
+  display: block;
+  width: 100%;
+  height: min(78vh, 720px);
+  min-height: 560px;
+  border: 0;
+}
+
 .transit-kakao-panel {
   margin: 0 0 16px;
   padding: 16px;
