@@ -1,12 +1,84 @@
 var TransitRoutes = (function () {
   var ROUTE_API = '/api/transit-route';
 
+  // Public project-osrm.org only has a car graph — foot/bike URLs still return car times.
+  // FOSSGIS hosts separate foot / bike / car routers.
+  var MODE_OSRM = {
+    walk: 'https://routing.openstreetmap.de/routed-foot/route/v1/driving/',
+    bicycle: 'https://routing.openstreetmap.de/routed-bike/route/v1/driving/',
+    car: 'https://routing.openstreetmap.de/routed-car/route/v1/driving/'
+  };
+  // Rough urban speeds (m/min) used only if routing APIs fail.
+  var MODE_SPEED_M_PER_MIN = { walk: 75, bicycle: 250, car: 500 };
+
+  function modeLabelText(mode) {
+    var labels = {
+      walk: (typeof I18n !== 'undefined' && I18n.t) ? I18n.t('transit.mode.walk') : '도보',
+      car: (typeof I18n !== 'undefined' && I18n.t) ? I18n.t('transit.mode.car') : '자동차',
+      bicycle: (typeof I18n !== 'undefined' && I18n.t) ? I18n.t('transit.mode.bicycle') : '자전거'
+    };
+    return labels[mode] || mode;
+  }
+
+  function haversineMeters(from, to) {
+    var R = 6371000;
+    var toRad = function (d) { return d * Math.PI / 180; };
+    var dLat = toRad(to.lat - from.lat);
+    var dLng = toRad(to.lng - from.lng);
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2)
+      + Math.cos(toRad(from.lat)) * Math.cos(toRad(to.lat))
+      * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  function buildModeRoute(from, to, mode, durationSec, distanceM, polyline, source) {
+    var totalMin = Math.max(1, Math.round((durationSec || 0) / 60));
+    var dist = Math.round(distanceM || 0);
+    return {
+      mode: mode,
+      source: source || 'osrm',
+      routes: [{
+        id: 0,
+        summary: {
+          totalMinutes: totalMin,
+          payment: null,
+          transfers: 0,
+          walkMeters: mode === 'walk' ? dist : 0,
+          walkMinutes: mode === 'walk' ? totalMin : 0,
+          busCount: 0,
+          subwayCount: 0,
+          label: modeLabelText(mode),
+          firstStop: from.name,
+          lastStop: to.name
+        },
+        steps: [{
+          type: mode,
+          duration: totalMin,
+          distance: dist,
+          from: from.name,
+          to: to.name,
+          line: null,
+          notes: []
+        }],
+        polyline: polyline || [[from.lat, from.lng], [to.lat, to.lng]]
+      }]
+    };
+  }
+
+  function estimateModeRoute(from, to, mode) {
+    var straight = haversineMeters(from, to);
+    // Road distance is typically longer than straight-line.
+    var factor = mode === 'walk' ? 1.35 : mode === 'bicycle' ? 1.3 : 1.4;
+    var dist = Math.max(50, straight * factor);
+    var speed = MODE_SPEED_M_PER_MIN[mode] || MODE_SPEED_M_PER_MIN.walk;
+    var durationSec = (dist / speed) * 60;
+    return buildModeRoute(from, to, mode, durationSec, dist, null, 'estimate');
+  }
+
   function fetchOsrmClient(from, to, mode) {
-    var profileMap = { walk: 'foot', car: 'driving', bicycle: 'bike' };
-    var osrmProfile = profileMap[mode] || 'foot';
+    var base = MODE_OSRM[mode] || MODE_OSRM.walk;
     var coords = from.lng + ',' + from.lat + ';' + to.lng + ',' + to.lat;
-    var url = 'https://router.project-osrm.org/route/v1/' + osrmProfile + '/'
-      + coords + '?overview=full&geometries=geojson&steps=true';
+    var url = base + coords + '?overview=full&geometries=geojson&steps=true';
 
     return fetch(url)
       .then(function (res) { return res.json(); })
@@ -15,44 +87,21 @@ var TransitRoutes = (function () {
           throw new Error('경로를 찾지 못했습니다.');
         }
         var route = data.routes[0];
-        var labels = {
-          walk: (typeof I18n !== 'undefined' && I18n.t) ? I18n.t('transit.mode.walk') : '도보',
-          car: (typeof I18n !== 'undefined' && I18n.t) ? I18n.t('transit.mode.car') : '자동차',
-          bicycle: (typeof I18n !== 'undefined' && I18n.t) ? I18n.t('transit.mode.bicycle') : '자전거'
-        };
-        var totalMin = Math.max(1, Math.round((route.duration || 0) / 60));
-        var polyline = (route.geometry.coordinates || []).map(function (pt) {
+        var polyline = ((route.geometry && route.geometry.coordinates) || []).map(function (pt) {
           return [pt[1], pt[0]];
         });
-        return {
-          mode: mode,
-          source: 'osrm-client',
-          routes: [{
-            id: 0,
-            summary: {
-              totalMinutes: totalMin,
-              payment: null,
-              transfers: 0,
-              walkMeters: mode === 'walk' ? Math.round(route.distance || 0) : 0,
-              walkMinutes: mode === 'walk' ? totalMin : 0,
-              busCount: 0,
-              subwayCount: 0,
-              label: labels[mode] || mode,
-              firstStop: from.name,
-              lastStop: to.name
-            },
-            steps: [{
-              type: mode,
-              duration: totalMin,
-              distance: Math.round(route.distance || 0),
-              from: from.name,
-              to: to.name,
-              line: null,
-              notes: []
-            }],
-            polyline: polyline
-          }]
-        };
+        return buildModeRoute(
+          from,
+          to,
+          mode,
+          route.duration || 0,
+          route.distance || 0,
+          polyline,
+          'osrm-client'
+        );
+      })
+      .catch(function () {
+        return estimateModeRoute(from, to, mode);
       });
   }
 

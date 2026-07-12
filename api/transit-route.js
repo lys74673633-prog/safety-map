@@ -2,7 +2,14 @@ const { sendJson, setCors, fetchJson } = require('./_http');
 const fs = require('fs');
 const path = require('path');
 
-const OSRM = 'https://router.project-osrm.org/route/v1';
+// project-osrm.org only serves a car graph (foot/bike URLs still return car times).
+// FOSSGIS hosts separate mode-specific OSRM instances.
+const MODE_OSRM = {
+  walk: 'https://routing.openstreetmap.de/routed-foot/route/v1/driving/',
+  bicycle: 'https://routing.openstreetmap.de/routed-bike/route/v1/driving/',
+  car: 'https://routing.openstreetmap.de/routed-car/route/v1/driving/',
+};
+const MODE_SPEED_M_PER_MIN = { walk: 75, bicycle: 250, car: 500 };
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 function getOdsayKey() {
@@ -19,32 +26,32 @@ function getOdsayKey() {
   return '';
 }
 
-async function searchOsrm(mode, sx, sy, ex, ey, fromName, toName) {
-  const profileMap = { walk: 'foot', car: 'driving', bicycle: 'bike' };
-  const profile = profileMap[mode] || 'foot';
-  const url =
-    OSRM + '/' + profile + '/' + sx + ',' + sy + ';' + ex + ',' + ey +
-    '?overview=full&geometries=geojson&steps=true';
-  const data = await fetchJson(url);
-  if (data.code !== 'Ok' || !data.routes || !data.routes.length) {
-    return { error: true, code: 'NO_ROUTE', message: '경로를 찾지 못했습니다.' };
-  }
-  const route = data.routes[0];
+function haversineMeters(sy, sx, ey, ex) {
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(ey - sy);
+  const dLng = toRad(ex - sx);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(sy)) * Math.cos(toRad(ey)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function buildOsrmPayload(mode, fromName, toName, durationSec, distanceM, polyline, source) {
   const labels = { walk: '도보', car: '자동차', bicycle: '자전거' };
-  const totalMin = Math.max(1, Math.round((route.duration || 0) / 60));
-  const polyline = (route.geometry.coordinates || []).map(function (pt) {
-    return [pt[1], pt[0]];
-  });
+  const totalMin = Math.max(1, Math.round((durationSec || 0) / 60));
+  const dist = Math.round(distanceM || 0);
   return {
     mode: mode,
-    source: 'osrm',
+    source: source || 'osrm',
     routes: [{
       id: 0,
       summary: {
         totalMinutes: totalMin,
         payment: null,
         transfers: 0,
-        walkMeters: mode === 'walk' ? Math.round(route.distance || 0) : 0,
+        walkMeters: mode === 'walk' ? dist : 0,
         walkMinutes: mode === 'walk' ? totalMin : 0,
         busCount: 0,
         subwayCount: 0,
@@ -55,7 +62,7 @@ async function searchOsrm(mode, sx, sy, ex, ey, fromName, toName) {
       steps: [{
         type: mode,
         duration: totalMin,
-        distance: Math.round(route.distance || 0),
+        distance: dist,
         from: fromName,
         to: toName,
         line: null,
@@ -64,6 +71,51 @@ async function searchOsrm(mode, sx, sy, ex, ey, fromName, toName) {
       polyline: polyline,
     }],
   };
+}
+
+function estimateOsrm(mode, sx, sy, ex, ey, fromName, toName) {
+  const straight = haversineMeters(sy, sx, ey, ex);
+  const factor = mode === 'walk' ? 1.35 : mode === 'bicycle' ? 1.3 : 1.4;
+  const dist = Math.max(50, straight * factor);
+  const speed = MODE_SPEED_M_PER_MIN[mode] || MODE_SPEED_M_PER_MIN.walk;
+  const durationSec = (dist / speed) * 60;
+  return buildOsrmPayload(
+    mode,
+    fromName,
+    toName,
+    durationSec,
+    dist,
+    [[sy, sx], [ey, ex]],
+    'estimate'
+  );
+}
+
+async function searchOsrm(mode, sx, sy, ex, ey, fromName, toName) {
+  const base = MODE_OSRM[mode] || MODE_OSRM.walk;
+  const url =
+    base + sx + ',' + sy + ';' + ex + ',' + ey +
+    '?overview=full&geometries=geojson&steps=true';
+  try {
+    const data = await fetchJson(url);
+    if (data.code !== 'Ok' || !data.routes || !data.routes.length) {
+      return estimateOsrm(mode, sx, sy, ex, ey, fromName, toName);
+    }
+    const route = data.routes[0];
+    const polyline = (route.geometry.coordinates || []).map(function (pt) {
+      return [pt[1], pt[0]];
+    });
+    return buildOsrmPayload(
+      mode,
+      fromName,
+      toName,
+      route.duration || 0,
+      route.distance || 0,
+      polyline,
+      'osrm'
+    );
+  } catch (err) {
+    return estimateOsrm(mode, sx, sy, ex, ey, fromName, toName);
+  }
 }
 
 function pushPoint(polyline, lng, lat) {
