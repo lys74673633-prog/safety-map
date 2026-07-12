@@ -90,19 +90,53 @@ var TransitGuide = (function () {
     return 'https://map.kakao.com/?sName=' + fromName + '&eName=' + toName;
   }
 
+  // Never load Kakao home (recent searches / login history). Route deep-link only.
   function kakaoFrameSrc() {
-    if (state.showResult && state.fromPoint && state.toPoint) {
+    if (
+      state.showResult &&
+      state.fromPoint && state.toPoint &&
+      state.fromPoint.lat && state.toPoint.lat &&
+      state.fromPoint.lng && state.toPoint.lng
+    ) {
       return kakaoDirectionsUrl(state.fromPoint, state.toPoint, state.mode);
     }
-    return 'https://map.kakao.com/';
+    return '';
+  }
+
+  function renderMapPane(frameSrc) {
+    if (!frameSrc) {
+      var desc = state.showResult
+        ? '출발·도착 위치를 지도 좌표로 찾지 못해 경로 지도를 열지 않았습니다. 장소명을 더 정확히 입력해 주세요.'
+        : '출발지와 도착지를 입력하면 경로만 표시됩니다. 카카오 최근 검색·로그인 기록은 불러오지 않습니다.';
+      return (
+        '<div class="transit-map-empty">' +
+          '<div class="transit-map-empty-card">' +
+            brandHtml() +
+            '<p class="transit-map-empty-title">Oasi5 길찾기</p>' +
+            '<p class="transit-map-empty-desc">' + escapeHtml(desc) + '</p>' +
+          '</div>' +
+        '</div>'
+      );
+    }
+
+    return (
+      '<div class="transit-map-frame-clip">' +
+        '<div class="transit-map-theme-veil" aria-hidden="true"></div>' +
+        '<iframe class="transit-map-frame" id="transit-kakao-frame" title="Oasi5 길찾기"' +
+          ' src="' + escapeHtml(frameSrc) + '"' +
+          ' loading="eager"' +
+          ' referrerpolicy="no-referrer"' +
+          ' credentialless' +
+          ' sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"' +
+          ' allow="geolocation; fullscreen"' +
+        '></iframe>' +
+      '</div>'
+    );
   }
 
   function render() {
     var profile = getProfile(state.profileId);
     var frameSrc = kakaoFrameSrc();
-    var openUrl = state.showResult && state.fromPoint && state.toPoint
-      ? kakaoDirectionsUrl(state.fromPoint, state.toPoint, state.mode)
-      : 'https://map.kakao.com/';
 
     return (
       '<main class="transit-map-shell">' +
@@ -112,10 +146,10 @@ var TransitGuide = (function () {
             '<span class="transit-map-brand-label">길찾기</span>' +
           '</div>' +
           '<div class="transit-map-modes" id="transit-mode-tabs">' + renderModeTabs(state.mode) + '</div>' +
-          '<form class="transit-map-form" id="transit-form">' +
-            '<input type="text" id="transit-from" name="from" class="transit-map-input" placeholder="출발지" value="' + escapeHtml(state.from) + '" autocomplete="off" aria-label="출발지" />' +
+          '<form class="transit-map-form" id="transit-form" autocomplete="off">' +
+            '<input type="text" id="transit-from" name="from" class="transit-map-input" placeholder="출발지" value="' + escapeHtml(state.from) + '" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="출발지" />' +
             '<button type="button" class="transit-map-swap" id="transit-swap" aria-label="출발지와 도착지 바꾸기">⇅</button>' +
-            '<input type="text" id="transit-to" name="to" class="transit-map-input" placeholder="도착지" value="' + escapeHtml(state.to) + '" autocomplete="off" aria-label="도착지" />' +
+            '<input type="text" id="transit-to" name="to" class="transit-map-input" placeholder="도착지" value="' + escapeHtml(state.to) + '" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="도착지" />' +
             '<button type="submit" class="transit-map-go"' + (state.loading ? ' disabled' : '') + '>' +
               (state.loading ? '…' : '길찾기') +
             '</button>' +
@@ -138,13 +172,11 @@ var TransitGuide = (function () {
               ? '<p class="transit-map-route">' +
                   escapeHtml(state.fromPoint.name) + ' → ' + escapeHtml(state.toPoint.name) +
                   ' · ' + escapeHtml(profile.label) +
-                  ' · <a class="transit-map-open" href="' + escapeHtml(openUrl) + '" target="_blank" rel="noopener noreferrer">새 창</a>' +
+                  ' · <span class="transit-map-privacy">검색기록 비표시</span>' +
                 '</p>'
-              : '<p class="transit-map-hint">출발·도착을 입력하면 지도에서 경로를 보여 줍니다.</p>')) +
+              : '<p class="transit-map-hint">경로만 표시 · 카카오 최근검색·계정 기록은 숨깁니다</p>')) +
         '</div>' +
-        '<div class="transit-map-frame-clip">' +
-          '<iframe class="transit-map-frame" id="transit-kakao-frame" title="Oasi5 길찾기" src="' + escapeHtml(frameSrc) + '" loading="eager" referrerpolicy="no-referrer-when-downgrade"></iframe>' +
-        '</div>' +
+        renderMapPane(frameSrc) +
       '</main>'
     );
   }
