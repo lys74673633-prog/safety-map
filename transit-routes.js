@@ -152,6 +152,49 @@ var TransitRoutes = (function () {
     return Number(won).toLocaleString('ko-KR') + '원';
   }
 
+  function localizeTransitText(text) {
+    var s = String(text || '').trim();
+    if (!s) return s;
+    s = s
+      .replace(/\bExpress\s*Bus\b/gi, '광역버스')
+      .replace(/\bIntercity\s*Bus\b/gi, '시외버스')
+      .replace(/\bAirport\s*Bus\b/gi, '공항버스')
+      .replace(/\bVillage\s*Bus\b/gi, '마을버스')
+      .replace(/\bTown\s*Bus\b/gi, '마을버스')
+      .replace(/\bLocal\s*Bus\b/gi, '시내버스')
+      .replace(/\bCity\s*Bus\b/gi, '시내버스')
+      .replace(/\bGeneral\s*Bus\b/gi, '일반버스')
+      .replace(/\bTrunk\s*Bus\b/gi, '간선버스')
+      .replace(/\bBranch\s*Bus\b/gi, '지선버스')
+      .replace(/\bRapid\s*Bus\b/gi, '급행버스')
+      .replace(/\bBus\b/gi, '버스')
+      .replace(/\bSubway\b/gi, '지하철')
+      .replace(/\bMetro\b/gi, '지하철')
+      .replace(/\bWalk(?:ing)?\b/gi, '도보')
+      .replace(/\bTransfer\b/gi, '환승')
+      .replace(/\bStation\b/gi, '역')
+      .replace(/\bLine\s*(\d+)\b/gi, '$1호선')
+      .replace(/\b(\d+)(?:st|nd|rd|th)?\s*Line\b/gi, '$1호선');
+    return s;
+  }
+
+  function formatLineLabel(step) {
+    var type = step.type;
+    var line = localizeTransitText(step.line || '');
+    if (type === 'bus') {
+      if (!line) return '버스';
+      if (/버스/.test(line)) return line;
+      if (/^\d/.test(line) || /^[A-Za-z]?\d/.test(line)) return '버스 ' + line;
+      return line;
+    }
+    if (type === 'subway') {
+      if (!line) return '지하철';
+      if (/호선|지하철|선/.test(line)) return line;
+      return line;
+    }
+    return line;
+  }
+
   function stepIcon(type) {
     if (type === 'walk') return 'walk';
     if (type === 'subway') return 'subway';
@@ -162,18 +205,20 @@ var TransitRoutes = (function () {
   }
 
   function stepTitle(step) {
+    var from = localizeTransitText(step.from || '');
+    var to = localizeTransitText(step.to || '');
     if (step.type === 'walk') {
-      return (step.from || '출발') + ' → ' + (step.to || '도착') + ' 도보';
+      return (from || '출발') + ' → ' + (to || '도착') + ' 도보';
     }
     if (step.type === 'subway') {
-      return (step.line || '지하철') + ' · ' + (step.from || '') + ' → ' + (step.to || '');
+      return formatLineLabel(step) + ' · ' + (from || '') + ' → ' + (to || '');
     }
     if (step.type === 'bus') {
-      return (step.line || '버스') + ' · ' + (step.from || '') + ' → ' + (step.to || '');
+      return formatLineLabel(step) + ' · ' + (from || '') + ' → ' + (to || '');
     }
     if (step.type === 'car') return '자동차 이동';
     if (step.type === 'bicycle') return '자전거 이동';
-    return step.label || '이동';
+    return localizeTransitText(step.label || step.instruction || '이동');
   }
 
   function annotateSteps(steps, profileId) {
@@ -214,6 +259,7 @@ var TransitRoutes = (function () {
     formatDuration: formatDuration,
     formatDistance: formatDistance,
     formatPayment: formatPayment,
+    localizeTransitText: localizeTransitText,
     stepIcon: stepIcon,
     stepTitle: stepTitle,
     annotateSteps: annotateSteps,

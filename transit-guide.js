@@ -169,7 +169,11 @@ var TransitGuide = (function () {
       var s = route.summary || {};
       var c = TR && route.comfortScore != null ? TR.comfortLabel(route.comfortScore) : null;
       var active = i === state.selectedRouteIndex ? ' is-active' : '';
-      var cardMeta = [s.label || label];
+      var routeLabel = TR && TR.localizeTransitText
+        ? TR.localizeTransitText(s.label || label)
+        : (s.label || label);
+      if (!/[가-힣]/.test(String(routeLabel || ''))) routeLabel = label;
+      var cardMeta = [routeLabel];
       if (s.transfers != null) cardMeta.push('환승 ' + s.transfers);
       if (s.walkMeters && TR) cardMeta.push('도보 ' + TR.formatDistance(s.walkMeters));
       return (

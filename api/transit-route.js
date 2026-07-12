@@ -74,7 +74,7 @@ function pushPoint(polyline, lng, lat) {
   }
 }
 
-function parseNaverStep(step, fromName, toName) {
+  function parseNaverStep(step, fromName, toName) {
   const stype = step.type;
   const duration = Math.max(0, Math.round((step.duration || 0) / 60000));
   const distance = Math.max(0, Number(step.distance) || 0);
@@ -93,7 +93,17 @@ function parseNaverStep(step, fromName, toName) {
   }
   if (stype === 'SUBWAY' || stype === 'BUS') {
     const routes = step.routes || [];
-    const line = (routes[0] && routes[0].name) || (stype === 'SUBWAY' ? '지하철' : '버스');
+    let line = (routes[0] && (routes[0].name || routes[0].longName || routes[0].shortName)) || '';
+    if (stype === 'BUS') {
+      if (!line) line = '버스';
+      else if (!/버스/.test(line) && /^[\dA-Za-z]/.test(line)) line = '버스 ' + line;
+    } else if (!line) {
+      line = '지하철';
+    }
+    line = String(line)
+      .replace(/\bBus\b/gi, '버스')
+      .replace(/\bSubway\b/gi, '지하철')
+      .replace(/\bLine\s*(\d+)\b/gi, '$1호선');
     const stops = step.stops || [];
     const fromSt = stops[0] ? (stops[0].displayName || stops[0].name) : '';
     const toSt = stops.length ? (stops[stops.length - 1].displayName || stops[stops.length - 1].name) : '';
@@ -142,7 +152,13 @@ function parseNaverPath(path, fromName, toName, idx) {
   });
 
   const labels = path.pathLabels || [];
-  const label = labels[0] && labels[0].labelText ? labels[0].labelText : '대중교통';
+  let label = labels[0] && labels[0].labelText ? labels[0].labelText : '대중교통';
+  label = String(label)
+    .replace(/\bBus\b/gi, '버스')
+    .replace(/\bSubway\b/gi, '지하철')
+    .replace(/\bWalk(?:ing)?\b/gi, '도보')
+    .replace(/\bTransit\b/gi, '대중교통');
+  if (!/[가-힣]/.test(label)) label = '대중교통';
   let payment = null;
   const fareGroups = path.fareGroups || [];
   if (fareGroups[0] && fareGroups[0].fareOptions && fareGroups[0].fareOptions[0]) {
@@ -210,6 +226,7 @@ async function searchOdsay(sx, sy, ex, ey, fromName, toName, profile) {
     EY: String(ey),
     OPT: String(opt),
     SearchPathType: '0',
+    lang: '0',
   });
   const data = await fetchJson('https://api.odsay.com/v1/api/searchPubTransPathT?' + qs.toString());
   if (data.error) {
@@ -241,15 +258,31 @@ async function searchOdsay(sx, sy, ex, ey, fromName, toName, profile) {
 
       let line = null;
       if (sub.lane && sub.lane[0]) {
-        line = sub.lane[0].name || sub.lane[0].busNo || null;
+        const lane = sub.lane[0];
+        if (type === 'bus') {
+          const busNo = lane.busNoKor || lane.busNo || '';
+          const busName = lane.nameKor || lane.name || '';
+          if (busNo && /[가-힣]/.test(String(busName))) line = String(busName);
+          else if (busNo) line = '버스 ' + String(busNo);
+          else if (busName) line = String(busName);
+          else line = '버스';
+        } else if (type === 'subway') {
+          line = lane.nameKor || lane.name || lane.subwayCode || '지하철';
+        } else {
+          line = lane.nameKor || lane.name || null;
+        }
+      }
+      if (!line) {
+        if (type === 'bus') line = '버스';
+        else if (type === 'subway') line = '지하철';
       }
 
       return {
         type: type,
         duration: Math.max(0, Number(sub.sectionTime) || 0),
         distance: Math.max(0, Number(sub.distance) || 0),
-        from: sub.startName || fromName,
-        to: sub.endName || toName,
+        from: sub.startNameKor || sub.startName || fromName,
+        to: sub.endNameKor || sub.endName || toName,
         line: line,
         stationCount: Math.max(0, Number(sub.stationCount) || 0),
         notes: [],
