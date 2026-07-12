@@ -123,7 +123,10 @@ var AppNav = (function () {
 
     if (state.view === 'city') {
       backBtn.textContent = tt('nav.backHome', '← 지도 홈');
-      document.title = tt('title.city', { region: state.region, city: state.city });
+      document.title = tt('title.city', {
+        region: (typeof regionDisplayName === 'function' ? regionDisplayName(state.region) : state.region),
+        city: state.city
+      });
     } else if (state.view === 'place') {
       if (state.back && state.back.region && state.back.city) {
         backBtn.textContent = '← ' + state.back.region + ' ' + state.back.city;

@@ -301,7 +301,10 @@
   }
 
   function renderMetaChips(place) {
-    var chips = ['<span class="meta-chip">' + tt('place.regionChip', { region: place.region }) + '</span>'];
+    var regionLabel = (typeof regionDisplayName === 'function')
+      ? regionDisplayName(place.region)
+      : place.region;
+    var chips = ['<span class="meta-chip">' + tt('place.regionChip', { region: regionLabel }) + '</span>'];
     if (place.city) chips.push('<span class="meta-chip">' + place.city + '</span>');
     if (place.phone) chips.push('<span class="meta-chip meta-phone">☎ ' + place.phone + '</span>');
     if (place.hours) chips.push('<span class="meta-chip">' + place.hours + '</span>');

@@ -117,11 +117,14 @@ map.on('click', function (e) {
 
 function buildRegionBar() {
   var bar = document.getElementById('region-bar');
+  if (!bar) return;
+  bar.innerHTML = '';
   Object.keys(REGIONS).forEach(function (name) {
     var btn = document.createElement('button');
     btn.className = 'region-btn' + (name === currentRegion ? ' active' : '');
-    btn.textContent = name;
     btn.type = 'button';
+    btn.setAttribute('data-region', name);
+    btn.textContent = regionDisplayName(name);
     btn.addEventListener('click', function () {
       selectRegion(name, true);
     });
@@ -136,6 +139,10 @@ function tt(key, varsOrFb, maybeVars) {
 }
 
 function regionDisplayName(name) {
+  if (!name) return '';
+  var key = 'region.' + name;
+  var translated = tt(key, name);
+  if (translated && translated !== key) return translated;
   if (name === '전국') return tt('home.nation', '전국');
   return name;
 }
@@ -159,7 +166,7 @@ function renderCityBar() {
   }
 
   cityBar.classList.remove('hidden');
-  label.textContent = tt('home.cityPickFor', { region: currentRegion });
+  label.textContent = tt('home.cityPickFor', { region: regionDisplayName(currentRegion) });
   buttons.innerHTML = '';
 
   cities.forEach(function (city) {
@@ -181,7 +188,7 @@ function selectRegion(name, fly) {
   selectedIndex = null;
 
   document.querySelectorAll('.region-btn').forEach(function (btn) {
-    btn.classList.toggle('active', btn.textContent === name);
+    btn.classList.toggle('active', btn.getAttribute('data-region') === name);
   });
 
   if (fly && REGIONS[name]) {
@@ -271,7 +278,7 @@ function renderPanel() {
   document.getElementById('panel-summary').textContent =
     currentRegion === '전국'
       ? tt('home.summaryNational', '전국 도움 시설과 위험 지역 목록입니다. 지역을 선택하면 아래에 시·군 버튼이 나타납니다.')
-      : tt('home.summaryRegion', { region: currentRegion });
+      : tt('home.summaryRegion', { region: regionDisplayName(currentRegion) });
   document.getElementById('stat-help').textContent = helpItems.length;
   document.getElementById('stat-danger').textContent = dangerItems.length;
 
@@ -314,6 +321,7 @@ if (typeof GrowthChart !== 'undefined') {
 }
 
 window.onAppHomeShow = function () {
+  buildRegionBar();
   renderCityBar();
   renderPanel();
   setTimeout(function () {

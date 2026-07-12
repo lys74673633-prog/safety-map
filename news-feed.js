@@ -1,8 +1,17 @@
 var NewsFeed = (function () {
-  var CACHE_KEY = 'oasi5-articles-cache-v3';
+  var CACHE_KEY = 'oasi5-articles-cache-v4';
   var CACHE_TTL_MS = 3 * 60 * 60 * 1000;
   var FETCH_TIMEOUT_MS = 8000;
   var RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
+
+  function uiLang() {
+    return (typeof I18n !== 'undefined' && I18n.getLang && I18n.getLang() === 'en') ? 'en' : 'ko';
+  }
+
+  function tt(key, fb) {
+    if (typeof I18n !== 'undefined' && I18n.t) return I18n.t(key, fb);
+    return fb != null ? fb : key;
+  }
 
   var FEEDS = [
     {
@@ -342,12 +351,15 @@ var NewsFeed = (function () {
       .catch(function () { return []; });
   }
 
-  function translateBatch(texts) {
+  function translateBatch(texts, sl, tl) {
     var combined = texts.filter(Boolean).join('\n---\n');
     if (!combined) return Promise.resolve([]);
+    sl = sl || 'auto';
+    tl = tl || 'ko';
 
-    var url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ko&dt=t&q='
-      + encodeURIComponent(combined.slice(0, 1200));
+    var url = 'https://translate.googleapis.com/translate_a/single?client=gtx&sl=' +
+      encodeURIComponent(sl) + '&tl=' + encodeURIComponent(tl) + '&dt=t&q=' +
+      encodeURIComponent(combined.slice(0, 1200));
 
     return fetch(url)
       .then(function (res) { return res.json(); })
@@ -359,22 +371,99 @@ var NewsFeed = (function () {
       .catch(function () { return texts; });
   }
 
-  function translateArticlesParallel(articles) {
-    var queue = articles.filter(function (a) { return a.needsTranslation; }).slice(0, 5);
+  function sourceLangOf(article) {
+    if (article.sourceLang) return article.sourceLang;
+    if (article.sourceType === 'cnn') return 'en';
+    return 'ko';
+  }
+
+  function localizeTag(tag) {
+    var key = 'tag.' + tag;
+    var out = tt(key, tag);
+    return out === key ? tag : out;
+  }
+
+  function applyDisplayFields(article, lang) {
+    var src = sourceLangOf(article);
+    if (!article.titleOriginal) article.titleOriginal = article.title;
+    if (!article.summaryOriginal) article.summaryOriginal = article.summary;
+
+    if (src === lang) {
+      article.title = article.titleOriginal;
+      article.summary = article.summaryOriginal;
+      article.translated = false;
+    } else if (lang === 'en' && article.titleEn) {
+      article.title = article.titleEn;
+      article.summary = article.summaryEn || article.summaryOriginal;
+      article.translated = true;
+    } else if (lang === 'ko' && article.titleKo) {
+      article.title = article.titleKo;
+      article.summary = article.summaryKo || article.summaryOriginal;
+      article.translated = true;
+    }
+
+    if (article.sourceType === 'cnn') {
+      article.source = lang === 'en' ? 'CNN' : (article.translated ? 'CNN · 번역' : 'CNN');
+    }
+
+    if (!article.tagsOriginal) article.tagsOriginal = (article.tags || []).slice();
+    article.tags = article.tagsOriginal.map(localizeTag);
+    article.related = relatedFromTags(article.tags);
+    ensureImage(article);
+    return article;
+  }
+
+  function localizeArticlesForUi(articles) {
+    var lang = uiLang();
+    var queue = [];
+
+    articles.forEach(function (article) {
+      if (!article.tagsOriginal && article.tags) article.tagsOriginal = article.tags.slice();
+      if (!article.titleOriginal) article.titleOriginal = article.title;
+      if (!article.summaryOriginal) article.summaryOriginal = article.summary;
+
+      var src = sourceLangOf(article);
+      applyDisplayFields(article, lang);
+
+      if (src === lang) return;
+      if (lang === 'en' && article.titleEn) return;
+      if (lang === 'ko' && article.titleKo) return;
+      queue.push(article);
+    });
+
+    queue = queue.slice(0, 12);
     if (!queue.length) return Promise.resolve(articles);
 
+    var sl = lang === 'en' ? 'ko' : 'en';
+    var tl = lang;
+    // Mixed queue: translate each with correct source lang
     var promises = queue.map(function (article) {
-      return translateBatch([article.titleOriginal, article.summaryOriginal]).then(function (parts) {
-        if (parts[0]) article.title = parts[0].trim() || article.title;
-        if (parts[1]) article.summary = parts[1].trim() || article.summary;
+      var from = sourceLangOf(article);
+      var to = lang;
+      if (from === to) return Promise.resolve(article);
+      return translateBatch([article.titleOriginal, article.summaryOriginal], from, to).then(function (parts) {
+        var title = (parts[0] && parts[0].trim()) || article.titleOriginal;
+        var summary = (parts[1] && parts[1].trim()) || article.summaryOriginal;
+        if (to === 'en') {
+          article.titleEn = title;
+          article.summaryEn = summary;
+        } else {
+          article.titleKo = title;
+          article.summaryKo = summary;
+        }
+        article.title = title;
+        article.summary = summary;
         article.translated = true;
-        delete article.needsTranslation;
-        ensureImage(article);
+        applyDisplayFields(article, lang);
         return article;
       });
     });
 
     return Promise.all(promises).then(function () { return articles; });
+  }
+
+  function translateArticlesParallel(articles) {
+    return localizeArticlesForUi(articles);
   }
 
   function mapFeedItem(item, feed) {
@@ -391,18 +480,19 @@ var NewsFeed = (function () {
 
     var publisher = parsed.publisher || feed.source;
     var sourceLabel = feed.sourceType === 'cnn'
-      ? 'CNN · 번역'
+      ? 'CNN'
       : feed.source + (publisher && feed.sourceType === 'google' ? ' · ' + publisher : '');
 
     var article = {
       tags: classified.tags,
+      tagsOriginal: classified.tags.slice(),
       tagClass: classified.tagClass,
       title: parsed.title,
       titleOriginal: parsed.title,
       source: sourceLabel,
       sourceType: feed.sourceType,
-      translated: !!feed.translate,
-      needsTranslation: !!feed.translate,
+      sourceLang: feed.lang || (feed.sourceType === 'cnn' ? 'en' : 'ko'),
+      translated: false,
       date: formatDate(item.pubDate),
       pubTime: new Date(item.pubDate || 0).getTime() || 0,
       url: item.link || item.guid || '',
@@ -506,7 +596,15 @@ var NewsFeed = (function () {
 
   function mergeArticles(live) {
     live.sort(function (a, b) { return (b.pubTime || 0) - (a.pubTime || 0); });
-    var merged = dedupeArticles(live.concat(CURATED));
+    var curated = CURATED.map(function (a) {
+      var copy = ensureImage(Object.assign({}, a));
+      copy.sourceLang = copy.sourceLang || 'ko';
+      copy.titleOriginal = copy.titleOriginal || copy.title;
+      copy.summaryOriginal = copy.summaryOriginal || copy.summary;
+      copy.tagsOriginal = copy.tagsOriginal || (copy.tags || []).slice();
+      return copy;
+    });
+    var merged = dedupeArticles(live.concat(curated));
     merged.sort(function (a, b) {
       if ((b.pubTime || 0) !== (a.pubTime || 0)) return (b.pubTime || 0) - (a.pubTime || 0);
       return 0;
@@ -522,7 +620,7 @@ var NewsFeed = (function () {
     })).then(function (groups) {
       var live = [];
       groups.forEach(function (group) { live = live.concat(group); });
-      return translateArticlesParallel(live);
+      return live;
     });
   }
 
@@ -532,13 +630,15 @@ var NewsFeed = (function () {
     if (backgroundRefreshPromise) return backgroundRefreshPromise;
     backgroundRefreshPromise = fetchLiveArticles().then(function (live) {
       var merged = mergeArticles(live);
-      writeCache(merged);
-      backgroundRefreshPromise = null;
-      return {
-        articles: merged,
-        updatedAt: Date.now(),
-        fromCache: false
-      };
+      return localizeArticlesForUi(merged).then(function (articles) {
+        writeCache(articles);
+        backgroundRefreshPromise = null;
+        return {
+          articles: articles,
+          updatedAt: Date.now(),
+          fromCache: false
+        };
+      });
     }).catch(function () {
       backgroundRefreshPromise = null;
       return null;
@@ -550,29 +650,35 @@ var NewsFeed = (function () {
     var cached = readCache(true);
 
     if (cached) {
-      return Promise.resolve({
-        articles: cached.articles,
-        updatedAt: cached.updatedAt,
-        fromCache: true
+      return localizeArticlesForUi(cached.articles).then(function (articles) {
+        return {
+          articles: articles,
+          updatedAt: cached.updatedAt,
+          fromCache: true
+        };
       });
     }
 
     return fetchLiveArticles().then(function (live) {
       var merged = mergeArticles(live);
-      writeCache(merged);
-      return {
-        articles: merged,
-        updatedAt: Date.now(),
-        fromCache: false
-      };
+      return localizeArticlesForUi(merged).then(function (articles) {
+        writeCache(articles);
+        return {
+          articles: articles,
+          updatedAt: Date.now(),
+          fromCache: false
+        };
+      });
     }).catch(function () {
-      var curated = CURATED.map(function (a) { return ensureImage(Object.assign({}, a)); });
-      return {
-        articles: curated,
-        updatedAt: Date.now(),
-        fromCache: false,
-        error: true
-      };
+      var curated = mergeArticles([]);
+      return localizeArticlesForUi(curated).then(function (articles) {
+        return {
+          articles: articles,
+          updatedAt: Date.now(),
+          fromCache: false,
+          error: true
+        };
+      });
     });
   }
 
@@ -588,7 +694,14 @@ var NewsFeed = (function () {
   }
 
   function getCuratedPreview() {
-    return CURATED.map(function (a) { return ensureImage(Object.assign({}, a)); });
+    return CURATED.map(function (a) {
+      var copy = ensureImage(Object.assign({}, a));
+      copy.sourceLang = 'ko';
+      copy.titleOriginal = copy.title;
+      copy.summaryOriginal = copy.summary;
+      copy.tagsOriginal = (copy.tags || []).slice();
+      return applyDisplayFields(copy, uiLang());
+    });
   }
 
   return {
@@ -597,6 +710,7 @@ var NewsFeed = (function () {
     getCuratedPreview: getCuratedPreview,
     openLabel: openLabel,
     formatUpdatedAt: formatUpdatedAt,
+    localizeArticlesForUi: localizeArticlesForUi,
     CURATED: CURATED
   };
 })();

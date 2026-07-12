@@ -56,7 +56,10 @@ var CityView = (function () {
     if (!cityPlaces.length) {
       root.innerHTML =
         '<div class="app-view-inner"><div class="error-msg"><p>' +
-          tt('city.noPlaces', { region: region, city: city }) +
+          tt('city.noPlaces', {
+            region: (typeof regionDisplayName === 'function' ? regionDisplayName(region) : region),
+            city: city
+          }) +
         '</p></div></div>';
       return null;
     }
@@ -68,7 +71,7 @@ var CityView = (function () {
     root.innerHTML =
       '<div class="app-view-inner city-main">' +
         '<section class="city-hero">' +
-          '<p class="city-breadcrumb">' + tt('city.breadcrumb', { region: region }) + '</p>' +
+          '<p class="city-breadcrumb">' + tt('city.breadcrumb', { region: (typeof regionDisplayName === 'function' ? regionDisplayName(region) : region) }) + '</p>' +
           '<h1>' + city + '</h1>' +
           '<p class="city-summary">' + tt('city.summary', '등록된 도움 시설과 위험 지역입니다. 항목을 누르면 상세 화면으로 이동합니다.') + '</p>' +
           '<div class="city-stats">' +
