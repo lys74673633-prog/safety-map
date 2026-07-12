@@ -1,7 +1,7 @@
 var DisabilityAccess = (function () {
-  var NEARBY_RADIUS_KM = 3;
+  var NEARBY_RADIUS_KM = 2.5;
   var NEARBY_MAX_KM = 8;
-  var NEARBY_LIMIT = 12;
+  var NEARBY_LIMIT = 8;
 
   var state = {
     destination: '',
@@ -633,48 +633,59 @@ var DisabilityAccess = (function () {
     state.resolvingDestination = true;
     state.nearbyRemote = { cafe: [], food: [], shop: [] };
     state.loadingNearby = { cafe: true, food: true, shop: true };
+    state.nearbyError = false;
+    state.nearbyPartialError = false;
     mount();
 
-    function finishResolve(point) {
-      state.resolvingDestination = false;
-      if (point && point.lat && point.lng) {
-        state.destinationPoint = Object.assign({}, point, { name: trimmed });
-        refreshNearbyLists();
-        return;
-      }
-      state.destinationPoint = null;
-      resetNearbyState();
-      mount();
-    }
+    var url = apiUrl(
+      '/api/facility-recommend?q=' + encodeURIComponent(trimmed) +
+      '&radius=' + NEARBY_RADIUS_KM +
+      '&limit=' + NEARBY_LIMIT
+    );
 
-    // 네이버 장소검색 → 좌표 → 주변 카페·식당·쇼핑
-    fetch(apiUrl('/api/place-search?q=' + encodeURIComponent(trimmed) + '&limit=8'))
+    var timer = setTimeout(function () {
+      timer = null;
+      if (!state.resolvingDestination) return;
+      state.resolvingDestination = false;
+      state.loadingNearby = { cafe: false, food: false, shop: false };
+      state.nearbyError = true;
+      mount();
+    }, 12000);
+
+    fetch(url)
       .then(function (res) {
-        if (!res.ok) throw new Error('place-search');
+        if (!res.ok) throw new Error('facility-recommend');
         return res.json();
       })
       .then(function (data) {
-        var items = (data && data.items) || [];
-        var best = items.find(function (p) { return p.lat && p.lng; });
-        if (best) return finishResolve(best);
-        return fetch(apiUrl('/api/geocode?q=' + encodeURIComponent(trimmed)))
-          .then(function (res) {
-            if (!res.ok) throw new Error('geocode');
-            return res.json();
-          })
-          .then(function (geo) {
-            if (geo && geo.point && geo.point.lat) return finishResolve(geo.point);
-            finishResolve(null);
-          });
+        if (timer) clearTimeout(timer);
+        state.resolvingDestination = false;
+        var point = data && data.point;
+        if (point && point.lat && point.lng) {
+          state.destinationPoint = Object.assign({}, point, { name: trimmed });
+          state.nearbyRemote = {
+            cafe: (data && data.cafe) ? data.cafe : [],
+            food: (data && data.food) ? data.food : [],
+            shop: (data && data.shop) ? data.shop : []
+          };
+          state.loadingNearby = { cafe: false, food: false, shop: false };
+          state.nearbyError = false;
+          state.nearbyPartialError = false;
+          mount();
+          scheduleFacilityPhotos();
+          return;
+        }
+        state.destinationPoint = null;
+        resetNearbyState();
+        mount();
       })
       .catch(function () {
-        fetch(apiUrl('/api/geocode?q=' + encodeURIComponent(trimmed)))
-          .then(function (res) { return res.json(); })
-          .then(function (geo) {
-            if (geo && geo.point && geo.point.lat) finishResolve(geo.point);
-            else finishResolve(null);
-          })
-          .catch(function () { finishResolve(null); });
+        if (timer) clearTimeout(timer);
+        state.resolvingDestination = false;
+        state.destinationPoint = null;
+        resetNearbyState();
+        state.nearbyError = true;
+        mount();
       });
   }
 
@@ -695,53 +706,6 @@ var DisabilityAccess = (function () {
     state.nearbyPartialError = false;
   }
 
-  function fetchNearbyAll(point) {
-    var url = apiUrl('/api/nearby-places-all?lat=' + encodeURIComponent(point.lat)
-      + '&lng=' + encodeURIComponent(point.lng)
-      + '&radius=' + NEARBY_RADIUS_KM
-      + '&limit=' + NEARBY_LIMIT);
-    return new Promise(function (resolve, reject) {
-      var timer = setTimeout(function () { reject(new Error('nearby-timeout')); }, 6500);
-      fetch(url)
-        .then(function (res) {
-          clearTimeout(timer);
-          var ct = (res.headers.get('content-type') || '');
-          if (!res.ok || ct.indexOf('application/json') < 0) throw new Error('nearby-api');
-          return res.json();
-        })
-        .then(resolve)
-        .catch(function (err) {
-          clearTimeout(timer);
-          reject(err);
-        });
-    });
-  }
-
-  function fetchNearbyKind(kind) {
-    var p = state.destinationPoint;
-    var url = apiUrl('/api/nearby-places?lat=' + encodeURIComponent(p.lat)
-      + '&lng=' + encodeURIComponent(p.lng)
-      + '&kind=' + encodeURIComponent(kind)
-      + '&radius=' + NEARBY_RADIUS_KM
-      + '&limit=' + NEARBY_LIMIT);
-    return new Promise(function (resolve, reject) {
-      var timer = setTimeout(function () { reject(new Error('nearby-timeout')); }, 90000);
-      fetch(url)
-        .then(function (res) {
-          clearTimeout(timer);
-          if (!res.ok) throw new Error('nearby-api');
-          return res.json();
-        })
-        .then(function (data) {
-          resolve((data && data.items) ? data.items : []);
-        })
-        .catch(function (err) {
-          clearTimeout(timer);
-          reject(err);
-        });
-    });
-  }
-
   function refreshNearbyLists() {
     if (!state.destinationPoint || !state.destinationPoint.lat) {
       resetNearbyState();
@@ -749,33 +713,15 @@ var DisabilityAccess = (function () {
       return;
     }
 
-    // Show nearby OSM results with a clear loading state. Skip unrelated curated dumps.
-    state.nearbyRemote = { cafe: [], food: [], shop: [] };
-    state.loadingNearby = { cafe: true, food: true, shop: true };
-    state.nearbyError = false;
-    state.nearbyPartialError = false;
-    mount();
+    var trimmed = state.destination || state.destinationPoint.name || '';
+    if (!trimmed) {
+      resetNearbyState();
+      mount();
+      return;
+    }
 
-    var point = state.destinationPoint;
-    fetchNearbyAll(point)
-      .then(function (data) {
-        state.nearbyRemote = {
-          cafe: (data && data.cafe) ? data.cafe : [],
-          food: (data && data.food) ? data.food : [],
-          shop: (data && data.shop) ? data.shop : []
-        };
-        state.loadingNearby = { cafe: false, food: false, shop: false };
-        state.nearbyError = false;
-        state.nearbyPartialError = false;
-        mount();
-        scheduleFacilityPhotos();
-      })
-      .catch(function () {
-        state.loadingNearby = { cafe: false, food: false, shop: false };
-        state.nearbyError = true;
-        state.nearbyPartialError = false;
-        mount();
-      });
+    state.destination = trimmed;
+    resolveDestinationFromInput();
   }
 
   var photoLoadTimer = null;
@@ -1216,8 +1162,11 @@ var DisabilityAccess = (function () {
 
   function loadFacilityPhotos(container) {
     var rows = Array.prototype.slice.call(container.querySelectorAll('.facility-recommend-row'));
-    // Instant thumbs first; upgrades are staggered inside loadPhotoForRow.
-    rows.forEach(loadPhotoForRow);
+    // Map thumbs first; only upgrade first few rows so search stays snappy.
+    rows.forEach(function (row, i) {
+      if (i >= 6) row.removeAttribute('data-upgrade-photo');
+      loadPhotoForRow(row);
+    });
   }
 
   function mergeSuggest(local, remote) {

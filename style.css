@@ -182,6 +182,12 @@ body {
   background: var(--bg);
 }
 
+#view-transit.app-view-active {
+  min-height: calc(100vh - 72px);
+  background: var(--bg);
+  padding: 0;
+}
+
 .header-brand {
   display: flex;
   align-items: center;

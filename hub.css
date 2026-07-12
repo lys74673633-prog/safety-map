@@ -1576,6 +1576,248 @@
   text-decoration: underline;
 }
 
+.transit-map-shell {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 72px);
+  min-height: 520px;
+  overflow: hidden;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.transit-map-topbar {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 14px;
+  border-bottom: 1px solid color-mix(in srgb, var(--green) 28%, var(--border));
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--green) 16%, var(--surface)) 0%, var(--surface) 100%);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.transit-map-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.transit-map-brand .brand-lockup {
+  gap: 8px;
+}
+
+.transit-map-brand .brand-wordmark {
+  color: var(--text);
+}
+
+.transit-map-brand-label {
+  font-size: 0.8125rem;
+  font-weight: 800;
+  color: var(--green);
+  letter-spacing: -0.01em;
+}
+
+.transit-map-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.transit-map-mode {
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.transit-map-mode:hover,
+.transit-map-mode.is-active {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-light);
+}
+
+.transit-map-form {
+  display: flex;
+  flex: 1 1 280px;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.transit-map-input {
+  flex: 1 1 0;
+  min-width: 0;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 9px 11px;
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.transit-map-input:focus {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
+  border-color: var(--green);
+}
+
+.transit-map-swap {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-elevated);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.transit-map-swap:hover {
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.transit-map-go {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--green) 0%, var(--green-dark) 100%);
+  color: #04140c;
+  font: inherit;
+  font-weight: 800;
+  font-size: 0.8125rem;
+  padding: 9px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.transit-map-go:hover {
+  filter: brightness(1.05);
+}
+
+.transit-map-go:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.transit-map-subbar {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 14px 10px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.transit-map-profiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.transit-map-chip {
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.transit-map-chip:hover,
+.transit-map-chip.is-active {
+  border-color: var(--green);
+  color: var(--green);
+  background: var(--green-light);
+}
+
+.transit-map-hint,
+.transit-map-route,
+.transit-map-error {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.transit-map-error {
+  color: #f87171;
+}
+
+.transit-map-open {
+  color: var(--green);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.transit-map-open:hover {
+  text-decoration: underline;
+}
+
+/* Kakao yellow header (~52px) clipped; map fills remaining viewport */
+.transit-map-frame-clip {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: #dce6f0;
+}
+
+.transit-map-frame {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -52px;
+  width: 100%;
+  height: calc(100% + 52px);
+  border: 0;
+  display: block;
+  background: #e8eef5;
+}
+
+@media (max-width: 720px) {
+  .transit-map-topbar {
+    padding: 10px 10px 8px;
+    gap: 8px;
+  }
+
+  .transit-map-form {
+    flex: 1 1 100%;
+    order: 3;
+  }
+
+  .transit-map-modes {
+    order: 2;
+  }
+
+  .transit-map-go {
+    padding: 9px 12px;
+  }
+}
+
 .transit-kakao-embed-wrap {
   margin-top: 8px;
   border: 1px solid var(--border);

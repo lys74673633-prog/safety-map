@@ -55,7 +55,7 @@ async function fetchNaverHtml(query, lat, lng) {
   if (cached && Date.now() - cached.t < CACHE_TTL) return cached.html;
 
   const enc = encodeURIComponent(q);
-  let url = 'https://pcmap.place.naver.com/place/list?query=' + enc + '&display=60&page=1';
+  let url = 'https://pcmap.place.naver.com/place/list?query=' + enc + '&display=30&page=1';
   if (lat != null && lng != null && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
     url +=
       '&x=' + encodeURIComponent(lng) +
@@ -65,7 +65,7 @@ async function fetchNaverHtml(query, lat, lng) {
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(function () { controller.abort(); }, 8000);
+  const timer = setTimeout(function () { controller.abort(); }, 4500);
   try {
     const res = await fetch(url, {
       headers: {
@@ -147,7 +147,7 @@ async function searchPlaces(query, limit) {
 async function searchNearbyKind(lat, lng, kind, radiusKm, limit) {
   const q = KIND_QUERY[kind] || '카페';
   const html = await fetchNaverHtml(q, lat, lng);
-  const items = parsePlaces(html, Math.max((limit || 12) * 3, 24));
+  const items = parsePlaces(html, Math.max((limit || 8) * 2, 16));
   const within = [];
   const outside = [];
   items.forEach(function (item) {

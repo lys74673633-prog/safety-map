@@ -1,5 +1,5 @@
 const { sendJson, setCors } = require('./_http');
-const allHandler = require('./nearby-places-all');
+const { searchNearbyKind } = require('./_naver-places');
 
 module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') {
@@ -8,34 +8,34 @@ module.exports = async function handler(req, res) {
     return res.end();
   }
 
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
   const kind = String(req.query.kind || 'cafe');
-  const capture = {
-    statusCode: 200,
-    headers: {},
-    body: '',
-    setHeader: function (k, v) { this.headers[k] = v; },
-    end: function (body) { this.body = body; },
-  };
+  const radius = Math.min(Math.max(Number(req.query.radius) || 2.5, 1), 5);
+  const limit = Math.min(Math.max(Number(req.query.limit) || 8, 4), 12);
 
-  await allHandler(req, capture);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return sendJson(res, 400, { error: true, message: 'lat/lng가 필요합니다.' });
+  }
 
   try {
-    const data = JSON.parse(capture.body || '{}');
+    const items = await searchNearbyKind(lat, lng, kind, radius, limit);
     return sendJson(res, 200, {
-      lat: data.lat,
-      lng: data.lng,
+      lat: lat,
+      lng: lng,
       kind: kind,
-      radiusKm: data.radiusKm,
-      items: (data && data[kind]) ? data[kind] : [],
-      source: data.source || 'osm',
+      radiusKm: radius,
+      items: items,
+      source: 'naver',
     });
   } catch (err) {
     return sendJson(res, 200, {
-      lat: Number(req.query.lat) || 0,
-      lng: Number(req.query.lng) || 0,
+      lat: lat,
+      lng: lng,
       kind: kind,
-      radiusKm: 5,
+      radiusKm: radius,
       items: [],
+      source: 'empty',
     });
   }
 };

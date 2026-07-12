@@ -61,25 +61,11 @@ var TransitGuide = (function () {
     return PROFILES.find(function (p) { return p.id === id; }) || PROFILES[0];
   }
 
-  function renderPrefChips(profile) {
-    var labels = {
-      avoidStairs: '계단 회피',
-      preferElevator: '엘리베이터 우선',
-      lowFloorBus: '저상버스 우선',
-      minWalk: '도보 최소',
-      minTransfer: '환승 최소',
-      gentleSlope: '완만한 경사',
-      voiceGuide: '음성 안내',
-      tactilePaving: '촉지 블록',
-      seating: '좌석·휴식 구간'
-    };
-    var chips = [];
-    Object.keys(profile.prefs || {}).forEach(function (key) {
-      if (profile.prefs[key] && labels[key]) {
-        chips.push('<span class="transit-pref-chip">' + escapeHtml(labels[key]) + '</span>');
-      }
-    });
-    return chips.join('');
+  function brandHtml() {
+    if (typeof Oasi5Brand !== 'undefined' && Oasi5Brand.render) {
+      return Oasi5Brand.render({ size: 'sm' });
+    }
+    return '<span class="brand-wordmark">Oasi<span class="brand-five">5</span></span>';
   }
 
   function renderModeTabs(activeMode) {
@@ -88,7 +74,7 @@ var TransitGuide = (function () {
       var mode = modes[id];
       var active = id === activeMode ? ' is-active' : '';
       return (
-        '<button type="button" class="transit-mode-tab' + active + '" data-mode="' + id + '">' +
+        '<button type="button" class="transit-map-mode' + active + '" data-mode="' + id + '">' +
           escapeHtml(mode.label || id) +
         '</button>'
       );
@@ -104,85 +90,61 @@ var TransitGuide = (function () {
     return 'https://map.kakao.com/?sName=' + fromName + '&eName=' + toName;
   }
 
-  function renderRoutePanel(profile) {
+  function kakaoFrameSrc() {
+    if (state.showResult && state.fromPoint && state.toPoint) {
+      return kakaoDirectionsUrl(state.fromPoint, state.toPoint, state.mode);
+    }
+    return 'https://map.kakao.com/';
+  }
+
+  function render() {
+    var profile = getProfile(state.profileId);
+    var frameSrc = kakaoFrameSrc();
+    var openUrl = state.showResult && state.fromPoint && state.toPoint
+      ? kakaoDirectionsUrl(state.fromPoint, state.toPoint, state.mode)
+      : 'https://map.kakao.com/';
+
     return (
-      '<section class="hub-section transit-route-panel">' +
-        '<div class="transit-mode-tabs" id="transit-mode-tabs">' + renderModeTabs(state.mode) + '</div>' +
-        '<form class="transit-route-form" id="transit-form">' +
-          '<div class="transit-route-inputs">' +
-            '<div class="transit-route-row">' +
-              '<span class="transit-route-dot transit-route-dot-from" aria-hidden="true"></span>' +
-              '<input type="text" id="transit-from" name="from" class="transit-input transit-route-input" placeholder="출발지" value="' + escapeHtml(state.from) + '" autocomplete="off" aria-label="출발지" />' +
-            '</div>' +
-            '<button type="button" class="transit-swap-btn" id="transit-swap" aria-label="출발지와 도착지 바꾸기">⇅</button>' +
-            '<div class="transit-route-row">' +
-              '<span class="transit-route-dot transit-route-dot-to" aria-hidden="true"></span>' +
-              '<input type="text" id="transit-to" name="to" class="transit-input transit-route-input" placeholder="도착지" value="' + escapeHtml(state.to) + '" autocomplete="off" aria-label="도착지" />' +
-            '</div>' +
+      '<main class="transit-map-shell">' +
+        '<header class="transit-map-topbar">' +
+          '<div class="transit-map-brand">' +
+            brandHtml() +
+            '<span class="transit-map-brand-label">길찾기</span>' +
           '</div>' +
-          (state.error ? '<p class="transit-error">' + escapeHtml(state.error) + '</p>' : '') +
-          '<button type="submit" class="transit-submit transit-route-submit"' + (state.loading ? ' disabled' : '') + '>' +
-            (state.loading ? '길 찾는 중…' : '길찾기') +
-          '</button>' +
-        '</form>' +
-        '<div class="transit-profile-bar">' +
-          '<span class="transit-label">나의 이동 상황</span>' +
-          '<div class="transit-profile-grid" id="transit-profiles">' +
+          '<div class="transit-map-modes" id="transit-mode-tabs">' + renderModeTabs(state.mode) + '</div>' +
+          '<form class="transit-map-form" id="transit-form">' +
+            '<input type="text" id="transit-from" name="from" class="transit-map-input" placeholder="출발지" value="' + escapeHtml(state.from) + '" autocomplete="off" aria-label="출발지" />' +
+            '<button type="button" class="transit-map-swap" id="transit-swap" aria-label="출발지와 도착지 바꾸기">⇅</button>' +
+            '<input type="text" id="transit-to" name="to" class="transit-map-input" placeholder="도착지" value="' + escapeHtml(state.to) + '" autocomplete="off" aria-label="도착지" />' +
+            '<button type="submit" class="transit-map-go"' + (state.loading ? ' disabled' : '') + '>' +
+              (state.loading ? '…' : '길찾기') +
+            '</button>' +
+          '</form>' +
+        '</header>' +
+        '<div class="transit-map-subbar">' +
+          '<div class="transit-map-profiles" id="transit-profiles">' +
             PROFILES.map(function (p) {
               var active = p.id === state.profileId ? ' is-active' : '';
               return (
-                '<button type="button" class="transit-profile-card' + active + '" data-profile="' + p.id + '" title="' + escapeHtml(p.desc) + '">' +
-                  '<span class="hub-tag ' + p.tagClass + '">' + escapeHtml(p.label) + '</span>' +
+                '<button type="button" class="transit-map-chip' + active + '" data-profile="' + p.id + '" title="' + escapeHtml(p.desc) + '">' +
+                  escapeHtml(p.label) +
                 '</button>'
               );
             }).join('') +
           '</div>' +
-          '<div class="transit-pref-row">' + renderPrefChips(profile) + '</div>' +
+          (state.error
+            ? '<p class="transit-map-error">' + escapeHtml(state.error) + '</p>'
+            : (state.showResult && state.fromPoint && state.toPoint
+              ? '<p class="transit-map-route">' +
+                  escapeHtml(state.fromPoint.name) + ' → ' + escapeHtml(state.toPoint.name) +
+                  ' · ' + escapeHtml(profile.label) +
+                  ' · <a class="transit-map-open" href="' + escapeHtml(openUrl) + '" target="_blank" rel="noopener noreferrer">새 창</a>' +
+                '</p>'
+              : '<p class="transit-map-hint">출발·도착을 입력하면 지도에서 경로를 보여 줍니다.</p>')) +
         '</div>' +
-      '</section>'
-    );
-  }
-
-  function renderRouteResult(profile, fromPoint, toPoint) {
-    if (!fromPoint || !toPoint) return '';
-    var kakaoUrl = kakaoDirectionsUrl(fromPoint, toPoint, state.mode);
-    var modeLabel = typeof NaverTransit !== 'undefined'
-      ? (NaverTransit.getMode(state.mode).label || '길찾기')
-      : '길찾기';
-
-    return (
-      '<section class="hub-section transit-result" id="transit-result">' +
-        '<div class="transit-result-head">' +
-          '<h2>' + escapeHtml(modeLabel) + ' · ' + escapeHtml(profile.label) + '</h2>' +
-          '<p class="hub-section-note">' +
-            escapeHtml(fromPoint.name) + ' → ' + escapeHtml(toPoint.name) +
-          '</p>' +
+        '<div class="transit-map-frame-clip">' +
+          '<iframe class="transit-map-frame" id="transit-kakao-frame" title="Oasi5 길찾기" src="' + escapeHtml(frameSrc) + '" loading="eager" referrerpolicy="no-referrer-when-downgrade"></iframe>' +
         '</div>' +
-        '<div class="transit-kakao-embed-wrap">' +
-          '<iframe class="transit-kakao-embed" title="카카오맵 길찾기" src="' + escapeHtml(kakaoUrl) + '" loading="eager" referrerpolicy="no-referrer-when-downgrade"></iframe>' +
-        '</div>' +
-      '</section>'
-    );
-  }
-
-  function render(showResult) {
-    var profile = getProfile(state.profileId);
-    return (
-      '<main class="app-view-inner hub-view transit-view">' +
-        '<div class="hub-hero transit-hero-compact">' +
-          '<h1 class="hub-page-title">' +
-            '<span class="hub-page-brand">Oasi<span class="brand-five">5</span></span>' +
-          '</h1>' +
-          '<p class="hub-hero-lead">출발지와 도착지를 입력하면 카카오맵 길찾기로 안내합니다.</p>' +
-        '</div>' +
-        renderRoutePanel(profile) +
-        (showResult && state.fromPoint && state.toPoint
-          ? renderRouteResult(profile, state.fromPoint, state.toPoint)
-          : (
-            '<section class="hub-section transit-empty">' +
-              '<p class="hub-section-note">출발지와 도착지를 입력한 뒤 「길찾기」를 눌러 주세요.</p>' +
-            '</section>'
-          )) +
       '</main>'
     );
   }
@@ -212,7 +174,6 @@ var TransitGuide = (function () {
 
     state.error = '';
     state.loading = true;
-    state.showResult = false;
     mount();
 
     var NT = NaverTransit;
@@ -237,8 +198,6 @@ var TransitGuide = (function () {
       state.toPoint = asPoint(state.to, pts[1]);
       state.showResult = true;
       mount();
-      var result = document.querySelector('#transit-result');
-      if (result) result.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }).catch(function () {
       state.loading = false;
       state.fromPoint = asPoint(state.from, null);
@@ -284,8 +243,11 @@ var TransitGuide = (function () {
         state.fromPoint = state.toPoint;
         state.to = tmpText;
         state.toPoint = tmpPoint;
-        state.showResult = false;
-        mount();
+        if (state.from && state.to) runRouteSearch();
+        else {
+          state.showResult = false;
+          mount();
+        }
       });
     }
 
@@ -312,7 +274,7 @@ var TransitGuide = (function () {
   function mount() {
     var el = document.getElementById('view-transit');
     if (!el) return;
-    el.innerHTML = render(state.showResult);
+    el.innerHTML = render();
     bindEvents(el);
   }
 
